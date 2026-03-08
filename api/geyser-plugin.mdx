@@ -1,0 +1,295 @@
+---
+title: 'Geyser Plugin Interface'
+description: 'Build plugins to stream real-time account and transaction data from Harmonic Salsa validators'
+---
+
+The Geyser plugin interface allows you to build plugins that receive real-time notifications about account updates, transactions, slots, and blocks from the validator.
+
+## Overview
+
+Geyser plugins are dynamic libraries (`.so` files on Linux, `.dylib` on macOS) loaded by the validator at startup. They receive callbacks for various events during block processing.
+
+## Installation
+
+For plugin development, add to your `Cargo.toml`:
+
+```toml
+[dependencies]
+agave-geyser-plugin-interface = "3.1.9"
+```
+
+## Plugin Trait
+
+Implement the `GeyserPlugin` trait to create a plugin:
+
+```rust
+use agave_geyser_plugin_interface::geyser_plugin_interface::{
+    GeyserPlugin, GeyserPluginError, ReplicaAccountInfoVersions,
+    ReplicaBlockInfoVersions, ReplicaTransactionInfoVersions, Result,
+    SlotStatus,
+};
+
+#[derive(Default)]
+pub struct MyGeyserPlugin {
+    // Plugin state
+}
+
+impl GeyserPlugin for MyGeyserPlugin {
+    fn name(&self) -> &'static str {
+        "MyGeyserPlugin"
+    }
+
+    fn on_load(&mut self, config_file: &str) -> Result<()> {
+        // Initialize plugin from config file
+        Ok(())
+    }
+
+    fn on_unload(&mut self) {
+        // Cleanup on shutdown
+    }
+
+    fn update_account(
+        &self,
+        account: ReplicaAccountInfoVersions,
+        slot: u64,
+        is_startup: bool,
+    ) -> Result<()> {
+        // Handle account update
+        Ok(())
+    }
+
+    fn notify_transaction(
+        &self,
+        transaction: ReplicaTransactionInfoVersions,
+        slot: u64,
+    ) -> Result<()> {
+        // Handle transaction notification
+        Ok(())
+    }
+
+    fn update_slot_status(
+        &self,
+        slot: u64,
+        parent: Option<u64>,
+        status: SlotStatus,
+    ) -> Result<()> {
+        // Handle slot status change
+        Ok(())
+    }
+
+    fn notify_block_metadata(
+        &self,
+        blockinfo: ReplicaBlockInfoVersions,
+    ) -> Result<()> {
+        // Handle block metadata
+        Ok(())
+    }
+
+    fn account_data_notifications_enabled(&self) -> bool {
+        true
+    }
+
+    fn transaction_notifications_enabled(&self) -> bool {
+        true
+    }
+}
+```
+
+## Callback Methods
+
+### update_account
+
+Called when an account is updated or created.
+
+**Parameters:**
+- `account`: Account information (pubkey, lamports, data, owner, executable, rent_epoch)
+- `slot`: Slot number when the update occurred
+- `is_startup`: Whether this is called during validator startup (snapshot loading)
+
+### notify_transaction
+
+Called after a transaction is processed.
+
+**Parameters:**
+- `transaction`: Transaction information (signature, status, transaction data)
+- `slot`: Slot where transaction was processed
+
+### update_slot_status
+
+Called when slot status changes (processed → confirmed → finalized).
+
+**Parameters:**
+- `slot`: The slot number
+- `parent`: Parent slot (if available)
+- `status`: New status (`Processed`, `Confirmed`, `Rooted`)
+
+### notify_block_metadata
+
+Called when a block is complete.
+
+**Parameters:**
+- `blockinfo`: Block metadata (slot, blockhash, rewards, block_height, etc.)
+
+## Configuration
+
+Plugins are configured via JSON files referenced with `--geyser-plugin-config`:
+
+```json
+{
+  "libpath": "/path/to/libmy_geyser_plugin.so",
+  "config": {
+    "custom_option": "value",
+    "database_url": "postgresql://localhost/validator"
+  }
+}
+```
+
+The validator passes the `config` object to your plugin's `on_load` method.
+
+## Building a Plugin
+
+Create a Cargo library project:
+
+```toml
+[package]
+name = "my-geyser-plugin"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+agave-geyser-plugin-interface = "3.1.9"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+```
+
+Implement the plugin:
+
+```rust
+use agave_geyser_plugin_interface::geyser_plugin_interface::{
+    GeyserPlugin, GeyserPluginError, Result,
+};
+
+#[derive(Default)]
+pub struct MyPlugin;
+
+impl GeyserPlugin for MyPlugin {
+    // Implement required methods
+}
+
+#[no_mangle]
+#[allow(improper_ctypes_definitions)]
+pub unsafe extern "C" fn _create_plugin() -> *mut dyn GeyserPlugin {
+    let plugin = MyPlugin::default();
+    let plugin: Box<dyn GeyserPlugin> = Box::new(plugin);
+    Box::into_raw(plugin)
+}
+```
+
+Build the plugin:
+
+```bash
+cargo build --release
+```
+
+The plugin will be at `target/release/libmy_geyser_plugin.so`.
+
+## Loading Plugins
+
+Configure the validator to load your plugin:
+
+```bash
+agave-validator \
+  --geyser-plugin-config /path/to/plugin-config.json \
+  ... other args
+```
+
+Multiple plugins can be loaded:
+
+```bash
+agave-validator \
+  --geyser-plugin-config /path/to/plugin1.json \
+  --geyser-plugin-config /path/to/plugin2.json \
+  ... other args
+```
+
+## Performance Considerations
+
+- Plugin callbacks run synchronously in the validator's critical path
+- Slow plugins will impact validator performance
+- Offload heavy processing to background threads
+- Use buffering and batching for I/O operations
+- Enable only needed notifications (`account_data_notifications_enabled`, etc.)
+
+## Example: Account Logger Plugin
+
+```rust
+use agave_geyser_plugin_interface::geyser_plugin_interface::{
+    GeyserPlugin, ReplicaAccountInfoVersions, Result,
+};
+use std::fs::OpenOptions;
+use std::io::Write;
+
+pub struct AccountLoggerPlugin {
+    log_file: Option<std::fs::File>,
+}
+
+impl GeyserPlugin for AccountLoggerPlugin {
+    fn name(&self) -> &'static str {
+        "AccountLoggerPlugin"
+    }
+
+    fn on_load(&mut self, config_file: &str) -> Result<()> {
+        let config: serde_json::Value = serde_json::from_str(
+            &std::fs::read_to_string(config_file)?
+        )?;
+        
+        let log_path = config["config"]["log_path"]
+            .as_str()
+            .ok_or(GeyserPluginError::ConfigFileReadError)?;
+        
+        self.log_file = Some(OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(log_path)?);
+        
+        Ok(())
+    }
+
+    fn update_account(
+        &self,
+        account: ReplicaAccountInfoVersions,
+        slot: u64,
+        is_startup: bool,
+    ) -> Result<()> {
+        if let Some(file) = &self.log_file {
+            let info = match account {
+                ReplicaAccountInfoVersions::V0_0_1(info) => info,
+                ReplicaAccountInfoVersions::V0_0_2(info) => info,
+                ReplicaAccountInfoVersions::V0_0_3(info) => info,
+            };
+            
+            writeln!(
+                file,
+                "Slot {}: Account {} updated, lamports={}",
+                slot,
+                bs58::encode(info.pubkey).into_string(),
+                info.lamports
+            )?;
+        }
+        Ok(())
+    }
+
+    fn account_data_notifications_enabled(&self) -> bool {
+        true
+    }
+}
+```
+
+## See Also
+
+- [Validator Configuration](/validator/configuration) - Loading Geyser plugins
+- [Architecture](/architecture/overview) - Understanding validator internals
+- [Geyser Plugin Examples](https://github.com/solana-labs/solana-accountsdb-plugin-postgres) - Reference implementation

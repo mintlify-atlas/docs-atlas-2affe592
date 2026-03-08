@@ -1,0 +1,174 @@
+---
+title: 'Client Library'
+description: 'RPC client library for interacting with Harmonic Salsa programmatically'
+---
+
+The `solana-client` crate provides a high-level Rust client for interacting with Harmonic Salsa validators via RPC.
+
+## Installation
+
+Add to your `Cargo.toml`:
+
+```toml
+[dependencies]
+solana-client = "3.1.9"
+```
+
+## Core Client Types
+
+### RpcClient
+
+The main client for JSON-RPC requests.
+
+```rust
+use solana_client::rpc_client::RpcClient;
+
+let client = RpcClient::new("http://localhost:8899");
+```
+
+**Key Methods:**
+- `get_account(&self, pubkey: &Pubkey)` - Fetch account data
+- `get_balance(&self, pubkey: &Pubkey)` - Get account balance
+- `send_and_confirm_transaction(&self, transaction: &Transaction)` - Send transaction
+- `get_latest_blockhash(&self)` - Get recent blockhash
+- `get_slot(&self)` - Get current slot
+
+### NonblockingRpcClient
+
+Async version of RpcClient for use with `tokio`.
+
+```rust
+use solana_client::nonblocking::rpc_client::RpcClient;
+
+#[tokio::main]
+async fn main() {
+    let client = RpcClient::new("http://localhost:8899".to_string());
+    let balance = client.get_balance(&pubkey).await.unwrap();
+}
+```
+
+### TpuClient
+
+Direct TPU (Transaction Processing Unit) client for low-latency transaction submission.
+
+```rust
+use solana_client::tpu_client::TpuClient;
+use solana_client::connection_cache::ConnectionCache;
+
+let connection_cache = ConnectionCache::default();
+let tpu_client = TpuClient::new(
+    rpc_client,
+    &websocket_url,
+    config,
+).unwrap();
+```
+
+## Configuration
+
+### RpcClientConfig
+
+Configure RPC client behavior:
+
+```rust
+use solana_client::rpc_config::RpcSendTransactionConfig;
+use solana_sdk::commitment_config::CommitmentConfig;
+
+let config = RpcSendTransactionConfig {
+    skip_preflight: false,
+    preflight_commitment: Some(CommitmentConfig::processed().commitment),
+    encoding: Some(UiTransactionEncoding::Base64),
+    max_retries: Some(5),
+    min_context_slot: None,
+};
+```
+
+## Example Usage
+
+### Fetching Account Balance
+
+```rust
+use solana_client::rpc_client::RpcClient;
+use solana_sdk::pubkey::Pubkey;
+use std::str::FromStr;
+
+let client = RpcClient::new("http://localhost:8899");
+let pubkey = Pubkey::from_str("YourPublicKeyHere").unwrap();
+
+match client.get_balance(&pubkey) {
+    Ok(balance) => println!("Balance: {} lamports", balance),
+    Err(e) => eprintln!("Error: {}", e),
+}
+```
+
+### Sending a Transaction
+
+```rust
+use solana_client::rpc_client::RpcClient;
+use solana_sdk::{
+    signature::{Keypair, Signer},
+    system_transaction,
+    transaction::Transaction,
+};
+
+let client = RpcClient::new("http://localhost:8899");
+let payer = Keypair::new();
+let to_pubkey = Pubkey::new_unique();
+
+let recent_blockhash = client.get_latest_blockhash().unwrap();
+let transaction = system_transaction::transfer(
+    &payer,
+    &to_pubkey,
+    1_000_000, // lamports
+    recent_blockhash,
+);
+
+match client.send_and_confirm_transaction(&transaction) {
+    Ok(signature) => println!("Transaction signature: {}", signature),
+    Err(e) => eprintln!("Transaction failed: {}", e),
+}
+```
+
+### Querying Program Accounts
+
+```rust
+use solana_client::rpc_client::RpcClient;
+use solana_client::rpc_filter::{RpcFilterType, Memcmp};
+use solana_account_decoder::UiAccountEncoding;
+use solana_client::rpc_config::{RpcAccountInfoConfig, RpcProgramAccountsConfig};
+
+let client = RpcClient::new("http://localhost:8899");
+let program_id = Pubkey::from_str("YourProgramId").unwrap();
+
+let config = RpcProgramAccountsConfig {
+    filters: Some(vec![
+        RpcFilterType::Memcmp(Memcmp::new_base58_encoded(0, &[1, 2, 3])),
+    ]),
+    account_config: RpcAccountInfoConfig {
+        encoding: Some(UiAccountEncoding::Base64),
+        ..Default::default()
+    },
+    ..Default::default()
+};
+
+let accounts = client.get_program_accounts_with_config(&program_id, config).unwrap();
+```
+
+## Error Handling
+
+The client uses `ClientError` for error handling:
+
+```rust
+use solana_client::client_error::ClientError;
+
+match client.get_balance(&pubkey) {
+    Ok(balance) => println!("Balance: {}", balance),
+    Err(ClientError::RpcError(e)) => eprintln!("RPC error: {:?}", e),
+    Err(e) => eprintln!("Other error: {}", e),
+}
+```
+
+## See Also
+
+- [RPC API Reference](/api/rpc/overview) - JSON-RPC methods
+- [CLI Tools](/cli/cluster-query) - Command-line client
+- [Rust Documentation](https://docs.rs/solana-client/) - Full API reference

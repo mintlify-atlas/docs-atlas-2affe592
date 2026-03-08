@@ -84,6 +84,13 @@
             ]
           },
           {
+            "group": "Client Libraries",
+            "pages": [
+              "api/client",
+              "api/geyser-plugin"
+            ]
+          },
+          {
             "group": "RPC API",
             "pages": [
               "api/rpc/overview",
