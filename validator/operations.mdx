@@ -1,0 +1,440 @@
+---
+title: Validator Operations
+description: Day-to-day operations for running a Harmonic Salsa validator
+---
+
+# Validator Operations
+
+This guide covers the common operations you'll perform when running a validator.
+
+## Starting and Stopping
+
+### Starting the Validator
+
+If running as a systemd service:
+
+```bash
+sudo systemctl start agave-validator
+```
+
+If running manually:
+
+```bash
+agave-validator --config ~/validator.conf
+```
+
+### Stopping the Validator
+
+<Warning>
+Always perform a graceful shutdown to avoid corruption and ensure proper tower state saving.
+</Warning>
+
+If running as a systemd service:
+
+```bash
+sudo systemctl stop agave-validator
+```
+
+If running manually, send SIGINT (Ctrl+C) or SIGTERM:
+
+```bash
+pkill -SIGTERM agave-validator
+```
+
+Wait for the validator to shut down gracefully. Check logs to confirm:
+
+```bash
+sudo journalctl -u agave-validator -f
+```
+
+### Restarting the Validator
+
+```bash
+sudo systemctl restart agave-validator
+```
+
+## Monitoring Status
+
+### Check Validator Status
+
+View your validator in the gossip network:
+
+```bash
+solana gossip | grep $(solana-keygen pubkey ~/validator-keypair.json)
+```
+
+Check catchup status:
+
+```bash
+solana catchup $(solana-keygen pubkey ~/validator-keypair.json)
+```
+
+Expected output when caught up:
+```
+Slot: 12345678 (100.00% complete)
+Your validator is caught up.
+```
+
+### Monitor Vote Account
+
+View your vote account details:
+
+```bash
+solana vote-account $(solana-keygen pubkey ~/vote-account-keypair.json)
+```
+
+This shows:
+- Current vote credits
+- Commission rate
+- Last vote slot
+- Root slot
+- Active stake
+
+### Check Block Production
+
+View recent block production:
+
+```bash
+solana block-production
+```
+
+Filter to your validator:
+
+```bash
+solana block-production | grep $(solana-keygen pubkey ~/validator-keypair.json)
+```
+
+### View Validator Balance
+
+Check your validator identity balance:
+
+```bash
+solana balance ~/validator-keypair.json
+```
+
+Check vote account balance:
+
+```bash
+solana balance $(solana-keygen pubkey ~/vote-account-keypair.json)
+```
+
+## Health Checks
+
+### RPC Health Check
+
+If you're running RPC, check health via HTTP:
+
+```bash
+curl -X POST -H "Content-Type: application/json" -d '{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "getHealth"
+}' http://localhost:8899
+```
+
+Expected response:
+```json
+{"jsonrpc":"2.0","result":"ok","id":1}
+```
+
+### Admin RPC Commands
+
+The validator provides admin RPC commands for management. These require access to the admin RPC socket.
+
+#### Check Contact Info
+
+View your validator's contact information:
+
+```bash
+agave-validator contact-info
+```
+
+#### Exit Validator
+
+Gracefully exit the validator:
+
+```bash
+agave-validator exit
+```
+
+With forced exit:
+
+```bash
+agave-validator exit --force
+```
+
+#### Monitor Validator
+
+Continuously monitor validator status:
+
+```bash
+agave-validator monitor
+```
+
+### Process Health
+
+Check if the validator process is running:
+
+```bash
+ps aux | grep agave-validator
+```
+
+Check system resource usage:
+
+```bash
+top -p $(pgrep agave-validator)
+```
+
+## Log Management
+
+### View Logs
+
+If using systemd:
+
+```bash
+sudo journalctl -u agave-validator -f
+```
+
+If logging to a file (specified with `--log`):
+
+```bash
+tail -f ~/validator.log
+```
+
+### Filter Logs
+
+Show only errors:
+
+```bash
+sudo journalctl -u agave-validator | grep ERROR
+```
+
+Show warnings:
+
+```bash
+sudo journalctl -u agave-validator | grep WARN
+```
+
+Search for specific terms:
+
+```bash
+sudo journalctl -u agave-validator | grep "vote"
+```
+
+### Log Rotation
+
+Systemd automatically handles log rotation. For file-based logs, configure logrotate.
+
+Create `/etc/logrotate.d/agave-validator`:
+
+```
+/home/sol/validator.log {
+    daily
+    rotate 7
+    compress
+    delaycompress
+    missingok
+    notifempty
+    copytruncate
+}
+```
+
+### Change Log Level at Runtime
+
+You can adjust the log level without restarting:
+
+```bash
+agave-validator set-log-filter <FILTER>
+```
+
+Examples:
+- `agave-validator set-log-filter info`
+- `agave-validator set-log-filter solana_core=debug`
+- `agave-validator set-log-filter solana_runtime::message_processor=trace,solana_runtime::system_instruction_processor=trace`
+
+## Performance Monitoring
+
+### Check Ledger Size
+
+```bash
+du -sh ~/validator-ledger
+```
+
+### Monitor Disk I/O
+
+```bash
+iostat -x 5
+```
+
+### Monitor Network Usage
+
+```bash
+iftop
+```
+
+Or use:
+
+```bash
+nload
+```
+
+### Check Memory Usage
+
+```bash
+free -h
+```
+
+Detailed process memory:
+
+```bash
+pmap -x $(pgrep agave-validator)
+```
+
+## Ledger Maintenance
+
+### Limit Ledger Size
+
+The `--limit-ledger-size` flag automatically maintains ledger size:
+
+```bash
+--limit-ledger-size 50000000
+```
+
+This keeps approximately 50 million shreds on disk.
+
+### Manual Cleanup
+
+<Warning>
+Only perform manual cleanup when the validator is stopped.
+</Warning>
+
+```bash
+sudo systemctl stop agave-validator
+rm -rf ~/validator-ledger/rocksdb
+sudo systemctl start agave-validator
+```
+
+The validator will download the ledger from other validators on restart.
+
+## Snapshot Management
+
+### Configure Snapshots
+
+Control snapshot generation with these flags:
+
+```bash
+--snapshot-interval-slots 500
+--full-snapshot-interval-slots 25000
+--maximum-full-snapshots-to-retain 5
+--maximum-incremental-snapshots-to-retain 10
+```
+
+### Disable Snapshots
+
+To disable snapshot generation:
+
+```bash
+--no-snapshots
+```
+
+## Updating the Validator
+
+### Update Process
+
+1. Build or download the new version
+2. Stop the validator
+3. Replace the binary
+4. Start the validator
+
+```bash
+cd ~/salsa
+git pull
+./cargo build --release
+sudo systemctl stop agave-validator
+sudo cp target/release/agave-validator /usr/local/bin/
+sudo systemctl start agave-validator
+```
+
+### Verify Update
+
+Check the version:
+
+```bash
+agave-validator --version
+```
+
+## Vote Account Management
+
+### Update Commission
+
+```bash
+solana vote-update-commission \
+  $(solana-keygen pubkey ~/vote-account-keypair.json) \
+  10 \
+  ~/authorized-withdrawer-keypair.json
+```
+
+### Withdraw from Vote Account
+
+```bash
+solana withdraw-from-vote-account \
+  $(solana-keygen pubkey ~/vote-account-keypair.json) \
+  <DESTINATION_ADDRESS> \
+  <AMOUNT> \
+  ~/authorized-withdrawer-keypair.json
+```
+
+### Change Vote Authority
+
+```bash
+solana vote-authorize-voter \
+  $(solana-keygen pubkey ~/vote-account-keypair.json) \
+  ~/validator-keypair.json \
+  <NEW_VOTER_PUBKEY>
+```
+
+## Delinquency Recovery
+
+If your validator becomes delinquent:
+
+1. **Check network connectivity**: Ensure your validator can reach other nodes
+2. **Verify system resources**: Check CPU, memory, and disk I/O
+3. **Review logs**: Look for errors or warnings
+4. **Check catchup status**: `solana catchup $(solana-keygen pubkey ~/validator-keypair.json)`
+5. **Consider a restart**: If the issue persists, restart the validator
+
+## Emergency Procedures
+
+### Force Stop
+
+Only use in emergencies:
+
+```bash
+sudo killall -9 agave-validator
+```
+
+### Reset Tower
+
+<Warning>
+Only reset tower state if instructed by the Harmonic team or during coordinated cluster restarts.
+</Warning>
+
+```bash
+sudo systemctl stop agave-validator
+rm ~/validator-ledger/tower-*.bin
+sudo systemctl start agave-validator
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Configuration" icon="sliders" href="/validator/configuration">
+    Explore advanced configuration options
+  </Card>
+  <Card title="Monitoring" icon="chart-line" href="/validator/monitoring">
+    Set up comprehensive monitoring
+  </Card>
+  <Card title="Troubleshooting" icon="wrench" href="/validator/troubleshooting">
+    Troubleshoot common issues
+  </Card>
+</CardGroup>

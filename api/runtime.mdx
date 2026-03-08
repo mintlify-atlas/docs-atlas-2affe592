@@ -1,0 +1,190 @@
+---
+title: 'Runtime Library API'
+description: 'Core runtime library for transaction processing and account management'
+---
+
+## Overview
+
+The Harmonic Salsa runtime library provides the core functionality for transaction processing, account management, and blockchain state management. The primary component is the `Bank` struct, which represents a single slot in the blockchain and manages all account state and transaction execution for that slot.
+
+## Bank
+
+The `Bank` struct is the main entry point for interacting with blockchain state. It tracks client accounts and the progress of on-chain programs.
+
+### Key Concepts
+
+- A single bank relates to a block produced by a single leader
+- Each bank (except genesis) points back to a parent bank
+- Banks can be in one of three states: open, frozen, or rooted
+- The bank provides both high-level APIs (that sign transactions) and low-level APIs (for pre-signed transactions)
+
+### Core Methods
+
+#### Transaction Processing
+
+<ParamField path="process_transaction" type="fn(&self, tx: &Transaction) -> Result<()>">
+  Process a single transaction. The transaction must be properly signed and verified before calling this method.
+  
+  **Parameters:**
+  - `tx`: A reference to the `Transaction` to process
+  
+  **Returns:**
+  - `Result<()>`: Ok on success, or a `TransactionError` on failure
+</ParamField>
+
+<ParamField path="process_transactions" type="fn<'a>(&self, txs: &[TransactionWithMetadata], &TransactionProcessingConfig) -> Vec<Result<()>>">
+  Process multiple transactions as a batch. This is more efficient than processing transactions individually.
+  
+  **Parameters:**
+  - `txs`: Slice of transactions with metadata to process
+  - `config`: Transaction processing configuration
+  
+  **Returns:**
+  - `Vec<Result<()>>`: Vector of results, one per transaction
+</ParamField>
+
+#### Account Management
+
+<ParamField path="get_account" type="fn(&self, pubkey: &Pubkey) -> Option<AccountSharedData>">
+  Retrieve an account by its public key.
+  
+  **Parameters:**
+  - `pubkey`: The public key of the account to retrieve
+  
+  **Returns:**
+  - `Option<AccountSharedData>`: The account data if found, None otherwise
+</ParamField>
+
+<ParamField path="get_balance" type="fn(&self, pubkey: &Pubkey) -> u64">
+  Get the lamport balance of an account.
+  
+  **Parameters:**
+  - `pubkey`: The public key of the account
+  
+  **Returns:**
+  - `u64`: The account balance in lamports
+</ParamField>
+
+<ParamField path="store_account" type="fn(&self, pubkey: &Pubkey, account: &AccountSharedData)">
+  Store or update an account in the bank.
+  
+  **Parameters:**
+  - `pubkey`: The public key of the account
+  - `account`: The account data to store
+</ParamField>
+
+#### Bank State
+
+<ParamField path="slot" type="fn(&self) -> Slot">
+  Get the slot number for this bank.
+  
+  **Returns:**
+  - `Slot`: The slot number (u64)
+</ParamField>
+
+<ParamField path="epoch" type="fn(&self) -> Epoch">
+  Get the epoch number for this bank.
+  
+  **Returns:**
+  - `Epoch`: The epoch number (u64)
+</ParamField>
+
+<ParamField path="block_height" type="fn(&self) -> u64">
+  Get the block height for this bank.
+  
+  **Returns:**
+  - `u64`: The block height
+</ParamField>
+
+<ParamField path="is_frozen" type="fn(&self) -> bool">
+  Check if the bank is frozen (no more transactions can be processed).
+  
+  **Returns:**
+  - `bool`: True if frozen, false otherwise
+</ParamField>
+
+<ParamField path="freeze" type="fn(&mut self)">
+  Freeze the bank, preventing any further modifications. After freezing, rent is applied and sysvars are updated.
+</ParamField>
+
+#### Signature Status
+
+<ParamField path="get_signature_status" type="fn(&self, signature: &Signature) -> Option<Result<()>>">
+  Get the status of a transaction by its signature.
+  
+  **Parameters:**
+  - `signature`: The transaction signature
+  
+  **Returns:**
+  - `Option<Result<()>>`: The transaction result if found, None if not found
+</ParamField>
+
+## BankForks
+
+The `BankForks` struct manages multiple banks in a tree structure, representing the fork graph of the blockchain.
+
+### Methods
+
+<ParamField path="root_bank" type="fn(&self) -> Arc<Bank>">
+  Get the root bank (the most recently finalized bank).
+  
+  **Returns:**
+  - `Arc<Bank>`: Reference-counted pointer to the root bank
+</ParamField>
+
+<ParamField path="get" type="fn(&self, slot: Slot) -> Option<Arc<Bank>>">
+  Get a bank by its slot number.
+  
+  **Parameters:**
+  - `slot`: The slot number
+  
+  **Returns:**
+  - `Option<Arc<Bank>>`: The bank if found
+</ParamField>
+
+## Related Modules
+
+- `bank_client`: Client interface for interacting with a bank
+- `bank_utils`: Utility functions for bank operations
+- `commitment`: Commitment level tracking
+- `rent_collector`: Rent collection and calculation
+- `snapshot_utils`: Snapshot creation and restoration
+- `stakes`: Stake account management
+- `status_cache`: Transaction status caching
+
+## Example Usage
+
+```rust
+use solana_runtime::bank::Bank;
+use solana_sdk::signature::{Keypair, Signer};
+use solana_sdk::system_transaction;
+
+// Get an account balance
+let balance = bank.get_balance(&account_pubkey);
+println!("Balance: {} lamports", balance);
+
+// Process a transaction
+let from_keypair = Keypair::new();
+let to_pubkey = Pubkey::new_unique();
+let transaction = system_transaction::transfer(
+    &from_keypair,
+    &to_pubkey,
+    1_000_000, // lamports
+    bank.last_blockhash(),
+);
+
+let result = bank.process_transaction(&transaction);
+match result {
+    Ok(()) => println!("Transaction succeeded"),
+    Err(e) => println!("Transaction failed: {:?}", e),
+}
+
+// Check transaction status
+let status = bank.get_signature_status(&transaction.signatures[0]);
+```
+
+## See Also
+
+- [SVM API](/api/svm) - Low-level transaction processing
+- [Accounts DB API](/api/accounts-db) - Account storage layer
+- [Ledger API](/api/ledger) - Blockchain data storage

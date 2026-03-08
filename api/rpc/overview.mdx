@@ -1,0 +1,248 @@
+---
+title: 'RPC API Overview'
+description: 'JSON-RPC API for interacting with Harmonic Salsa nodes'
+---
+
+## Overview
+
+The Harmonic Salsa RPC API provides a JSON-RPC 2.0 interface for querying blockchain state, submitting transactions, and subscribing to real-time updates. The API is compatible with Solana RPC specifications.
+
+## Endpoints
+
+### HTTP JSON-RPC
+
+**Default Port:** 8899
+
+```
+http://localhost:8899
+```
+
+Used for:
+- Account queries
+- Transaction submission
+- Block information
+- Program account queries
+
+### WebSocket
+
+**Default Port:** 8900
+
+```
+ws://localhost:8900
+```
+
+Used for:
+- Account subscriptions
+- Signature subscriptions
+- Slot notifications
+- Program account subscriptions
+
+See [WebSocket API](/api/rpc/websockets) for details.
+
+## Authentication
+
+By default, Harmonic Salsa RPC endpoints do not require authentication. However, production deployments should:
+
+1. Use reverse proxies (nginx, HAProxy) for rate limiting
+2. Implement API key authentication at the proxy level
+3. Restrict access by IP address or network
+4. Enable HTTPS/WSS for encrypted communication
+
+## Request Format
+
+All HTTP requests use JSON-RPC 2.0 format:
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "getAccountInfo",
+  "params": [
+    "<account-pubkey>",
+    {
+      "encoding": "base64"
+    }
+  ]
+}
+```
+
+### Required Fields
+
+- `jsonrpc`: Must be "2.0"
+- `id`: Request identifier (number or string)
+- `method`: RPC method name
+- `params`: Array of method parameters (can be empty)
+
+## Response Format
+
+### Success Response
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "result": {
+    "context": {
+      "slot": 12345
+    },
+    "value": { /* method-specific data */ }
+  }
+}
+```
+
+### Error Response
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "error": {
+    "code": -32602,
+    "message": "Invalid params"
+  }
+}
+```
+
+## Common Parameters
+
+### Commitment Levels
+
+Specify how finalized data should be:
+
+- `processed`: Query the most recent block (may not be finalized)
+- `confirmed`: Query the most recent confirmed block (~400ms)
+- `finalized`: Query the most recent finalized block (~2 seconds)
+
+```json
+{
+  "commitment": "confirmed"
+}
+```
+
+### Encoding Options
+
+Account data encoding formats:
+
+- `base58`: Base58 encoding (default, limited to 128 bytes)
+- `base64`: Base64 encoding
+- `base64+zstd`: Base64 with zstd compression
+- `jsonParsed`: Parsed JSON for known program types
+
+```json
+{
+  "encoding": "base64"
+}
+```
+
+### Data Slicing
+
+Retrieve a portion of account data:
+
+```json
+{
+  "dataSlice": {
+    "offset": 0,
+    "length": 32
+  }
+}
+```
+
+## Rate Limits
+
+Public RPC nodes typically enforce rate limits:
+
+- **HTTP requests**: 100 requests/10 seconds per IP
+- **WebSocket connections**: 10 subscriptions per connection
+- **getRecentBlockhash**: 5 requests/second
+
+<Note>
+  Running your own node removes these restrictions.
+</Note>
+
+## Configuration
+
+Configure RPC settings when starting a validator:
+
+```bash
+agave-validator \
+  --rpc-port 8899 \
+  --rpc-bind-address 0.0.0.0 \
+  --full-rpc-api \
+  --rpc-threads 4 \
+  --rpc-max-multiple-accounts 100 \
+  --health-check-slot-distance 150
+```
+
+### Key Options
+
+<ParamField path="--rpc-port" type="u16" default="8899">
+  Port for HTTP JSON-RPC requests
+</ParamField>
+
+<ParamField path="--rpc-bind-address" type="string" default="127.0.0.1">
+  IP address to bind RPC server (use 0.0.0.0 for public access)
+</ParamField>
+
+<ParamField path="--full-rpc-api" type="flag">
+  Enable all RPC methods (including historical queries)
+</ParamField>
+
+<ParamField path="--rpc-threads" type="u16" default="1">
+  Number of threads for RPC request processing
+</ParamField>
+
+<ParamField path="--enable-rpc-transaction-history" type="flag">
+  Enable transaction history queries
+</ParamField>
+
+<ParamField path="--account-index" type="string[]">
+  Enable secondary indexes (program-id, spl-token-owner, spl-token-mint)
+</ParamField>
+
+## Error Codes
+
+Standard JSON-RPC 2.0 error codes:
+
+| Code | Message | Description |
+|------|---------|-------------|
+| -32700 | Parse error | Invalid JSON |
+| -32600 | Invalid Request | Invalid JSON-RPC |
+| -32601 | Method not found | Method doesn't exist |
+| -32602 | Invalid params | Invalid method parameters |
+| -32603 | Internal error | Server error |
+
+Custom error codes:
+
+| Code | Message | Description |
+|------|---------|-------------|
+| -32001 | MinContextSlotNotReached | Context slot hasn't been reached |
+| -32002 | TransactionHistoryNotAvailable | History not enabled |
+| -32003 | TransactionSignatureNotFound | Signature not found |
+| -32004 | BlockCleanedUp | Block has been cleaned up |
+| -32005 | UnsupportedTransactionVersion | Version not supported |
+
+## Health Check
+
+<ParamField path="getHealth" type="method">
+  Check if the node is healthy and syncing.
+  
+  **Returns:**
+  - `"ok"`: Node is healthy
+  - `error`: Node is behind or unhealthy
+</ParamField>
+
+```bash
+curl -X POST http://localhost:8899 \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "id": 1,
+    "method": "getHealth"
+  }'
+```
+
+## Next Steps
+
+- [RPC Methods](/api/rpc/methods) - Complete method reference
+- [WebSocket API](/api/rpc/websockets) - Real-time subscriptions
+- [CLI Tools](/cli/overview) - Using the Solana CLI

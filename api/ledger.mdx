@@ -1,0 +1,332 @@
+---
+title: 'Ledger API'
+description: 'Blockchain ledger storage and shred handling'
+---
+
+## Overview
+
+The Ledger library provides persistent storage for the Proof of History ledger, including blocks, transactions, and shreds. It supports parallel verification, iterative append, and random access to the blockchain data.
+
+## Blockstore
+
+The `Blockstore` struct is the main interface for ledger storage and retrieval.
+
+### Architecture
+
+- Built on RocksDB for persistent key-value storage
+- Stores data in multiple column families for different data types
+- Supports shred-based block construction
+- Provides transaction history and signature lookups
+- Handles block metadata, rewards, and performance samples
+
+### Structure
+
+```rust
+pub struct Blockstore {
+    ledger_path: PathBuf,
+    db: Arc<Rocks>,
+    // Column families
+    data_shred_cf: LedgerColumn<cf::ShredData>,
+    code_shred_cf: LedgerColumn<cf::ShredCode>,
+    transaction_status_cf: LedgerColumn<cf::TransactionStatus>,
+    address_signatures_cf: LedgerColumn<cf::AddressSignatures>,
+    rewards_cf: LedgerColumn<cf::Rewards>,
+    // ... many more column families
+}
+```
+
+### Opening and Configuration
+
+<ParamField path="open" type="fn(ledger_path: &Path) -> Result<Blockstore>">
+  Open an existing blockstore or create a new one at the given path.
+  
+  **Parameters:**
+  - `ledger_path`: Path to the ledger directory
+  
+  **Returns:**
+  - `Result<Blockstore>`: The opened blockstore, or error
+</ParamField>
+
+<ParamField path="open_with_options" type="fn(ledger_path: &Path, options: BlockstoreOptions) -> Result<Blockstore>">
+  Open a blockstore with custom options.
+  
+  **Parameters:**
+  - `ledger_path`: Path to the ledger directory
+  - `options`: Configuration options
+  
+  **Returns:**
+  - `Result<Blockstore>`: The opened blockstore, or error
+</ParamField>
+
+<ParamField path="destroy" type="fn(ledger_path: &Path) -> Result<()>">
+  Delete a blockstore and all its data.
+  
+  **Parameters:**
+  - `ledger_path`: Path to the ledger directory to delete
+  
+  **Returns:**
+  - `Result<()>`: Ok on success, error on failure
+</ParamField>
+
+### Shred Operations
+
+<ParamField path="insert_shreds" type="fn(&self, shreds: Vec<Shred>, leader_schedule: Option<&LeaderScheduleCache>, is_trusted: bool) -> Result<InsertResults>">
+  Insert shreds into the blockstore.
+  
+  **Parameters:**
+  - `shreds`: Vector of shreds to insert
+  - `leader_schedule`: Optional leader schedule for validation
+  - `is_trusted`: Whether shreds come from a trusted source
+  
+  **Returns:**
+  - `Result<InsertResults>`: Information about completed data sets and duplicates
+</ParamField>
+
+<ParamField path="get_data_shred" type="fn(&self, slot: Slot, index: u64) -> Result<Option<Vec<u8>>>">
+  Get a data shred by slot and index.
+  
+  **Parameters:**
+  - `slot`: The slot number
+  - `index`: The shred index within the slot
+  
+  **Returns:**
+  - `Result<Option<Vec<u8>>>`: The shred data if found
+</ParamField>
+
+<ParamField path="get_coding_shred" type="fn(&self, slot: Slot, index: u64) -> Result<Option<Vec<u8>>>">
+  Get a coding (erasure) shred by slot and index.
+  
+  **Parameters:**
+  - `slot`: The slot number
+  - `index`: The shred index
+  
+  **Returns:**
+  - `Result<Option<Vec<u8>>>`: The shred data if found
+</ParamField>
+
+### Block and Slot Operations
+
+<ParamField path="get_slot_entries" type="fn(&self, slot: Slot, shred_start_index: u64) -> Result<Vec<Entry>>">
+  Get all entries for a slot.
+  
+  **Parameters:**
+  - `slot`: The slot number
+  - `shred_start_index`: Starting shred index (usually 0)
+  
+  **Returns:**
+  - `Result<Vec<Entry>>`: Vector of entries
+</ParamField>
+
+<ParamField path="get_confirmed_block" type="fn(&self, slot: Slot, require_previous_blockhash: bool) -> Result<VersionedConfirmedBlock>">
+  Get a confirmed block by slot.
+  
+  **Parameters:**
+  - `slot`: The slot number
+  - `require_previous_blockhash`: Whether to require previous blockhash
+  
+  **Returns:**
+  - `Result<VersionedConfirmedBlock>`: The confirmed block with transactions and metadata
+</ParamField>
+
+<ParamField path="is_full" type="fn(&self, slot: Slot) -> bool">
+  Check if a slot is full (all shreds received).
+  
+  **Parameters:**
+  - `slot`: The slot number
+  
+  **Returns:**
+  - `bool`: True if the slot is complete
+</ParamField>
+
+<ParamField path="slot_meta" type="fn(&self, slot: Slot) -> Result<Option<SlotMeta>>">
+  Get metadata for a slot.
+  
+  **Parameters:**
+  - `slot`: The slot number
+  
+  **Returns:**
+  - `Result<Option<SlotMeta>>`: Slot metadata if found
+</ParamField>
+
+### Transaction Operations
+
+<ParamField path="get_transaction_status" type="fn(&self, signature: &Signature) -> Result<Option<TransactionStatusMeta>>">
+  Get transaction status by signature.
+  
+  **Parameters:**
+  - `signature`: The transaction signature
+  
+  **Returns:**
+  - `Result<Option<TransactionStatusMeta>>`: Transaction metadata if found
+</ParamField>
+
+<ParamField path="get_confirmed_transaction" type="fn(&self, signature: &Signature) -> Result<Option<ConfirmedTransactionWithStatusMeta>>">
+  Get a confirmed transaction by signature.
+  
+  **Parameters:**
+  - `signature`: The transaction signature
+  
+  **Returns:**
+  - `Result<Option<ConfirmedTransactionWithStatusMeta>>`: Full transaction details
+</ParamField>
+
+<ParamField path="get_confirmed_signatures_for_address" type="fn(&self, address: &Pubkey, start_slot: Slot, end_slot: Slot) -> Result<Vec<Signature>>">
+  Get all transaction signatures for an address in a slot range.
+  
+  **Parameters:**
+  - `address`: The address to search for
+  - `start_slot`: Starting slot (inclusive)
+  - `end_slot`: Ending slot (inclusive)
+  
+  **Returns:**
+  - `Result<Vec<Signature>>`: Vector of signatures
+</ParamField>
+
+### Root and Finalization
+
+<ParamField path="set_roots" type="fn(&self, slots: &[Slot]) -> Result<()>">
+  Mark slots as roots (finalized).
+  
+  **Parameters:**
+  - `slots`: Slice of slot numbers to mark as roots
+  
+  **Returns:**
+  - `Result<()>`: Ok on success
+</ParamField>
+
+<ParamField path="is_root" type="fn(&self, slot: Slot) -> bool">
+  Check if a slot is a root.
+  
+  **Parameters:**
+  - `slot`: The slot number
+  
+  **Returns:**
+  - `bool`: True if the slot is a root
+</ParamField>
+
+<ParamField path="last_root" type="fn(&self) -> Slot">
+  Get the last root slot.
+  
+  **Returns:**
+  - `Slot`: The most recent root slot number
+</ParamField>
+
+### Cleanup and Maintenance
+
+<ParamField path="purge_slots" type="fn(&self, start_slot: Slot, end_slot: Slot, purge_type: PurgeType) -> Result<bool>">
+  Purge a range of slots from the blockstore.
+  
+  **Parameters:**
+  - `start_slot`: Starting slot (inclusive)
+  - `end_slot`: Ending slot (inclusive)
+  - `purge_type`: Type of purge (e.g., CompactionFilter, Exact)
+  
+  **Returns:**
+  - `Result<bool>`: True if any slots were purged
+</ParamField>
+
+<ParamField path="cleanup_slots" type="fn(&self, slot_cleanup_threshold: Slot) -> Result<()>">
+  Clean up slots older than the threshold.
+  
+  **Parameters:**
+  - `slot_cleanup_threshold`: Slots below this are eligible for cleanup
+  
+  **Returns:**
+  - `Result<()>`: Ok on success
+</ParamField>
+
+## SlotMeta
+
+Metadata about a slot's completeness and ancestry.
+
+```rust
+pub struct SlotMeta {
+    pub slot: Slot,
+    pub consumed: u64,
+    pub received: u64,
+    pub parent_slot: Option<Slot>,
+    pub next_slots: Vec<Slot>,
+    pub is_connected: bool,
+    pub last_index: Option<u64>,
+}
+```
+
+## CompletedDataSetInfo
+
+Information about a completed set of data shreds.
+
+```rust
+pub struct CompletedDataSetInfo {
+    pub slot: Slot,
+    pub indices: Range<u32>,
+}
+```
+
+## Shred Types
+
+### Shred
+
+Represents a piece of block data for transmission and storage.
+
+**Variants:**
+- `ShredData`: Contains entry data
+- `ShredCode`: Contains erasure coding data for recovery
+
+**Methods:**
+- `slot()`: Get the slot number
+- `index()`: Get the shred index
+- `signature()`: Get the shred signature
+- `verify()`: Verify the shred signature
+
+## Example Usage
+
+```rust
+use solana_ledger::blockstore::Blockstore;
+use solana_ledger::shred::Shred;
+
+// Open blockstore
+let ledger_path = PathBuf::from("/path/to/ledger");
+let blockstore = Blockstore::open(&ledger_path)?;
+
+// Insert shreds
+let shreds: Vec<Shred> = receive_shreds_from_network();
+let results = blockstore.insert_shreds(shreds, None, false)?;
+
+for completed_set in results.completed_data_set_infos {
+    println!("Completed slot {} shreds {:?}", 
+        completed_set.slot, 
+        completed_set.indices
+    );
+}
+
+// Get entries for a slot
+let slot = 100;
+let entries = blockstore.get_slot_entries(slot, 0)?;
+for entry in entries {
+    println!("Entry: {:?}", entry);
+}
+
+// Get transaction by signature
+if let Some(confirmed_tx) = blockstore.get_confirmed_transaction(&signature)? {
+    println!("Found transaction: {:?}", confirmed_tx);
+}
+
+// Mark slot as root
+blockstore.set_roots(&[slot])?;
+
+// Check if slot is complete
+if blockstore.is_full(slot) {
+    println!("Slot {} is complete", slot);
+}
+```
+
+## Constants
+
+- `MAX_COMPLETED_SLOTS_IN_CHANNEL`: 100,000
+- `BLOCKSTORE_DIRECTORY_ROCKS_LEVEL`: "rocksdb"
+
+## See Also
+
+- [Runtime API](/api/runtime) - Transaction processing
+- [Architecture Overview](/architecture/overview) - System architecture
+- [Validator Configuration](/validator/configuration) - Ledger configuration

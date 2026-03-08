@@ -1,0 +1,114 @@
+---
+title: 'CLI Tools Overview'
+description: 'Comprehensive guide to Harmonic Salsa command-line tools for blockchain interaction and management'
+---
+
+The Harmonic Salsa CLI provides a complete suite of command-line tools for interacting with the Harmonic Salsa blockchain. These tools enable developers and validators to manage accounts, deploy programs, query cluster state, and perform stake operations.
+
+## Available Tools
+
+### solana
+
+The primary CLI tool for interacting with Harmonic Salsa clusters. Provides commands for:
+
+- Account management and balance queries
+- Transaction submission and monitoring
+- Cluster information and statistics
+- Stake account operations
+- Program deployment and management
+- Validator operations
+
+### solana-keygen
+
+Keypair and wallet management utility for:
+
+- Generating new keypairs
+- Recovering keypairs from seed phrases
+- Verifying keypair signatures
+- Grinding vanity addresses
+- Displaying public keys
+
+## Common Use Cases
+
+### Development Workflow
+
+1. **Generate a keypair** for development
+2. **Request airdrop** on devnet/testnet
+3. **Deploy programs** to the cluster
+4. **Submit transactions** and monitor status
+5. **Query accounts** and program state
+
+### Validator Operations
+
+1. **Create stake accounts** with SOL
+2. **Delegate stake** to validators
+3. **Monitor validator** performance
+4. **Manage stake** lifecycle
+5. **Deactivate and withdraw** stake
+
+### Program Management
+
+1. **Build programs** with cargo-build-sbf
+2. **Deploy programs** to mainnet/testnet
+3. **Upgrade existing** programs
+4. **Manage program** authorities
+5. **Close programs** and recover SOL
+
+## Configuration
+
+The CLI tools use a configuration file (default: `~/.config/solana/cli/config.yml`) to store:
+
+- **RPC URL**: Cluster endpoint
+- **WebSocket URL**: For real-time updates
+- **Keypair path**: Default signing keypair
+- **Commitment level**: Transaction confirmation level
+
+Set configuration with:
+
+```bash
+solana config set --url <RPC_URL>
+solana config set --keypair <PATH>
+```
+
+## Global Options
+
+Most commands support these global options:
+
+- `--url <URL>` - RPC endpoint to use
+- `--keypair <PATH>` - Keypair for signing
+- `--commitment <LEVEL>` - Confirmation level (processed, confirmed, finalized)
+- `--verbose` - Display additional information
+- `--output <FORMAT>` - Output format (json, json-compact)
+
+## Getting Help
+
+View available commands:
+
+```bash
+solana --help
+solana <COMMAND> --help
+```
+
+View tool version:
+
+```bash
+solana --version
+solana-keygen --version
+```
+
+## Related Resources
+
+<CardGroup cols={2}>
+  <Card title="Installation" icon="download" href="/cli/installation">
+    Install CLI tools separately from validator
+  </Card>
+  <Card title="Wallet Management" icon="wallet" href="/cli/wallet-management">
+    Generate and manage keypairs securely
+  </Card>
+  <Card title="Cluster Queries" icon="server" href="/cli/cluster-query">
+    Query blockchain state and information
+  </Card>
+  <Card title="Stake Management" icon="coins" href="/cli/stake-management">
+    Manage stake accounts and delegations
+  </Card>
+</CardGroup>

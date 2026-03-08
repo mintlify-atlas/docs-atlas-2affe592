@@ -1,0 +1,252 @@
+---
+title: 'Accounts DB API'
+description: 'Persistent account storage and indexing'
+---
+
+## Overview
+
+The Accounts DB library provides persistent storage for account data with memory-mapped files, concurrent access, and efficient indexing. It supports single-threaded append operations with many concurrent readers.
+
+## AccountsDb
+
+The `AccountsDb` struct is the main interface for account storage and retrieval.
+
+### Architecture
+
+- Accounts are stored in memory-mapped files called `AccountsFile`
+- Each file stores accounts for a single slot
+- A shared index tracks file locations and offsets for each account
+- Global atomic `write_version` tracks commits to the data store
+- Only the index requires write locks; storage operations are lock-free
+
+### Core Configuration
+
+<ParamField path="AccountsDbConfig" type="struct">
+  Configuration for AccountsDb behavior and performance tuning.
+  
+  **Fields:**
+  - `flush_threads`: Number of threads for flushing accounts
+  - `ancient_append_vecs`: Whether to use ancient append vecs optimization
+  - `storage_paths`: Directories for account storage
+  - `cache_limit_bytes`: Maximum size of the account cache
+  
+  **Defaults:**
+  - `ACCOUNTS_DB_CONFIG_FOR_TESTING`: Optimized for tests
+  - `ACCOUNTS_DB_CONFIG_FOR_BENCHMARKS`: Optimized for benchmarks
+</ParamField>
+
+### Account Operations
+
+<ParamField path="load" type="fn(&self, ancestors: &Ancestors, pubkey: &Pubkey) -> Option<(AccountSharedData, Slot)>">
+  Load an account by pubkey, considering ancestor relationships.
+  
+  **Parameters:**
+  - `ancestors`: Set of ancestor slots to search
+  - `pubkey`: The account's public key
+  
+  **Returns:**
+  - `Option<(AccountSharedData, Slot)>`: Account data and the slot it was found in, or None
+</ParamField>
+
+<ParamField path="store" type="fn(&self, slot: Slot, accounts: &[(&Pubkey, &AccountSharedData)])">
+  Store multiple accounts to the database at a given slot.
+  
+  **Parameters:**
+  - `slot`: The slot number for these accounts
+  - `accounts`: Slice of pubkey and account data tuples to store
+</ParamField>
+
+<ParamField path="store_cached" type="fn(&self, slot: Slot, accounts: &[(&Pubkey, Option<&AccountSharedData>)])">
+  Store accounts to the cache (for uncommitted transactions).
+  
+  **Parameters:**
+  - `slot`: The slot number
+  - `accounts`: Accounts to cache (None indicates account deletion)
+</ParamField>
+
+### Scanning and Indexing
+
+<ParamField path="scan_accounts" type="fn<F>(&self, ancestors: &Ancestors, scan_func: F, config: &ScanConfig) -> ScanResult<()> where F: FnMut(Option<(&Pubkey, AccountSharedData, Slot)>)">
+  Scan all accounts, calling a function for each one.
+  
+  **Parameters:**
+  - `ancestors`: Ancestor slots to include
+  - `scan_func`: Function called for each account
+  - `config`: Scan configuration (sorting, limits, etc.)
+  
+  **Returns:**
+  - `ScanResult<()>`: Ok on success, or error if scan was aborted
+</ParamField>
+
+<ParamField path="get_filtered_indexed_accounts" type="fn(&self, index_key: &IndexKey, filter: F, config: &ScanConfig, byte_limit: Option<usize>) -> ScanResult<Vec<(Pubkey, AccountSharedData)>>">
+  Get accounts from a secondary index with filtering.
+  
+  **Parameters:**
+  - `index_key`: The secondary index to query (e.g., by program owner)
+  - `filter`: Predicate function to filter accounts
+  - `config`: Scan configuration
+  - `byte_limit`: Optional byte limit for scans
+  
+  **Returns:**
+  - `ScanResult<Vec<(Pubkey, AccountSharedData)>>`: Filtered accounts
+</ParamField>
+
+### Cleaning and Maintenance
+
+<ParamField path="clean_accounts" type="fn(&self, max_clean_root: Option<Slot>)">
+  Clean up old account data that is no longer needed.
+  
+  Removes:
+  - Zero-lamport accounts that are not in the roots
+  - Old versions of accounts that have been updated
+  - Accounts in slots that have been purged
+  
+  **Parameters:**
+  - `max_clean_root`: Optional maximum root slot to clean up to
+</ParamField>
+
+<ParamField path="shrink_all_slots" type="fn(&self, is_startup: bool, last_full_snapshot_slot: Option<Slot>)">
+  Shrink all account storage to reclaim space.
+  
+  **Parameters:**
+  - `is_startup`: Whether this is being called during startup
+  - `last_full_snapshot_slot`: Last full snapshot slot for ancient append vec handling
+</ParamField>
+
+<ParamField path="flush_accounts_cache" type="fn(&self, should_flush: bool, snapshot_slot: Option<Slot>)">
+  Flush the accounts cache to persistent storage.
+  
+  **Parameters:**
+  - `should_flush`: Whether to force a flush
+  - `snapshot_slot`: Optional snapshot slot for coordination
+</ParamField>
+
+### Snapshot Support
+
+<ParamField path="add_root" type="fn(&self, slot: Slot) -> AccountsAddRootTiming">
+  Mark a slot as a root (finalized) slot.
+  
+  **Parameters:**
+  - `slot`: The slot to mark as root
+  
+  **Returns:**
+  - `AccountsAddRootTiming`: Timing metrics for the operation
+</ParamField>
+
+<ParamField path="accounts_delta_hash" type="fn(&self, slot: Slot) -> AccountsHash">
+  Get the accounts delta hash for a slot.
+  
+  **Parameters:**
+  - `slot`: The slot number
+  
+  **Returns:**
+  - `AccountsHash`: The delta hash for that slot
+</ParamField>
+
+<ParamField path="calculate_accounts_hash" type="fn(&self, slot: Slot, config: &CalcAccountsHashConfig) -> Result<(AccountsHash, u64), AccountsHashVerificationError>">
+  Calculate the accounts hash for a slot.
+  
+  **Parameters:**
+  - `slot`: The slot to hash
+  - `config`: Configuration for hash calculation
+  
+  **Returns:**
+  - `Result<(AccountsHash, u64), Error>`: The hash and total lamports, or error
+</ParamField>
+
+## AccountsIndex
+
+The accounts index provides fast lookups and secondary indexing.
+
+### Structure
+
+```rust
+pub struct AccountsIndex<T> {
+    pub account_maps: AccountsIndexStorage<T>,
+    pub program_id_index: SecondaryIndex<ProgramIdIndex>,
+    pub spl_token_mint_index: SecondaryIndex<SplTokenMintIndex>,
+    pub spl_token_owner_index: SecondaryIndex<SplTokenOwnerIndex>,
+    // ... other fields
+}
+```
+
+### Methods
+
+<ParamField path="upsert" type="fn(&self, slot: Slot, pubkey: &Pubkey, account_info: AccountInfo, reclaims: &mut SlotList<T>, account_shared_data: &AccountSharedData) -> UpsertReclaim">
+  Insert or update an account in the index.
+  
+  **Parameters:**
+  - `slot`: Current slot
+  - `pubkey`: Account public key
+  - `account_info`: Account metadata
+  - `reclaims`: Mutable list to collect reclaimable slots
+  - `account_shared_data`: The account data
+  
+  **Returns:**
+  - `UpsertReclaim`: Information about reclaimed entries
+</ParamField>
+
+## Storage Types
+
+### AccountsFile
+
+Represents a single account storage file (append vec).
+
+**Key Methods:**
+- `append_accounts`: Append accounts to the file
+- `get_stored_account`: Retrieve a stored account by offset
+- `accounts`: Iterate over all accounts in the file
+
+### AccountStorageEntry
+
+A reference-counted storage entry.
+
+**Fields:**
+- `slot`: The slot this storage belongs to
+- `id`: Unique storage ID
+- `accounts`: The underlying accounts file
+
+## Example Usage
+
+```rust
+use solana_accounts_db::accounts_db::{
+    AccountsDb, AccountsDbConfig, ACCOUNTS_DB_CONFIG_FOR_TESTING
+};
+use solana_accounts_db::ancestors::Ancestors;
+
+// Create accounts DB
+let accounts_db = AccountsDb::new_with_config(
+    vec![PathBuf::from("/path/to/storage")],
+    &ACCOUNTS_DB_CONFIG_FOR_TESTING,
+);
+
+// Store an account
+let slot = 100;
+let pubkey = Pubkey::new_unique();
+let account = AccountSharedData::new(1_000_000, 0, &system_program::id());
+accounts_db.store(slot, &[(&pubkey, &account)]);
+
+// Load an account
+let ancestors = Ancestors::from(vec![slot]);
+if let Some((loaded_account, found_slot)) = accounts_db.load(&ancestors, &pubkey) {
+    println!("Found account at slot {}: {:?}", found_slot, loaded_account);
+}
+
+// Mark slot as root
+accounts_db.add_root(slot);
+
+// Clean old accounts
+accounts_db.clean_accounts(Some(slot));
+```
+
+## Constants
+
+- `WRITE_CACHE_LIMIT_BYTES_DEFAULT`: 15 GB default cache size
+- `DEFAULT_FILE_SIZE`: 4 MB default file size
+- `SCAN_SLOT_PAR_ITER_THRESHOLD`: 4000 accounts for parallel iteration
+
+## See Also
+
+- [Runtime API](/api/runtime) - High-level bank interface
+- [Validator Configuration](/validator/configuration) - Storage configuration and tuning
+- [Operations](/operations/deployment) - Production deployment guide

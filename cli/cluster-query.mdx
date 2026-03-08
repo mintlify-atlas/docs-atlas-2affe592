@@ -1,0 +1,589 @@
+---
+title: 'Cluster Query Commands'
+description: 'Query cluster information, account data, and transaction status'
+---
+
+The Harmonic Salsa CLI provides comprehensive commands for querying blockchain state, cluster information, and account data. Use these commands to inspect the network and monitor transactions.
+
+## Cluster Information
+
+### Cluster Version
+
+Get the version of the cluster entrypoint:
+
+```bash
+solana cluster-version
+```
+
+Output:
+```
+1.18.0
+```
+
+### Cluster Date
+
+Get current cluster date and time:
+
+```bash
+solana cluster-date
+```
+
+Displays the current date computed from genesis creation time and network time.
+
+### Genesis Hash
+
+Get the genesis block hash:
+
+```bash
+solana genesis-hash
+```
+
+Output:
+```
+5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d
+```
+
+## Slot and Epoch Information
+
+### Current Slot
+
+Get the current slot:
+
+```bash
+solana slot
+```
+
+Output:
+```
+234567890
+```
+
+### Current Epoch
+
+Get the current epoch:
+
+```bash
+solana epoch
+```
+
+Output:
+```
+456
+```
+
+### Epoch Information
+
+Get detailed epoch information:
+
+```bash
+solana epoch-info
+```
+
+Output:
+```
+Block height: 201234567
+Slot: 234567890
+Epoch: 456
+Transaction Count: 89234567890
+Epoch Slot Range: [234000000..234431999]
+Epoch Completed Percent: 13.14%
+Epoch Completed Slots: 56789/431999 (13.14%)
+```
+
+### Block Height
+
+Get the current block height:
+
+```bash
+solana block-height
+```
+
+## Block Information
+
+### Get Block
+
+Retrieve a confirmed block:
+
+```bash
+# Get latest finalized block
+solana block
+
+# Get specific block by slot
+solana block --slot 234567890
+```
+
+### Block Time
+
+Get estimated production time of a block:
+
+```bash
+# Current block
+solana block-time
+
+# Specific slot
+solana block-time 234567890
+```
+
+Output:
+```
+2024-03-08T12:34:56Z
+```
+
+### First Available Block
+
+Get the first available block in storage:
+
+```bash
+solana first-available-block
+```
+
+## Account Queries
+
+### Account Balance
+
+Get account balance:
+
+```bash
+# Default keypair balance
+solana balance
+
+# Specific address
+solana balance <ADDRESS>
+
+# Display in lamports
+solana balance --lamports
+```
+
+Output:
+```
+5.25 SOL
+```
+
+### Account Information
+
+Get detailed account information:
+
+```bash
+solana account <ADDRESS>
+```
+
+Displays:
+- Account balance
+- Owner program
+- Data length
+- Executable status
+- Rent epoch
+
+### Largest Accounts
+
+Get addresses of largest cluster accounts:
+
+```bash
+# All accounts
+solana largest-accounts
+
+# Only circulating accounts
+solana largest-accounts --circulating
+
+# Only non-circulating accounts
+solana largest-accounts --non-circulating
+```
+
+## Supply Information
+
+### Total Supply
+
+Get cluster supply information:
+
+```bash
+solana supply
+```
+
+Output:
+```
+Total: 500000000 SOL
+Circulating: 350000000 SOL
+Non-Circulating: 150000000 SOL
+```
+
+### Print Non-Circulating Accounts
+
+```bash
+solana supply --print-accounts
+```
+
+### Transaction Count
+
+Get total transaction count:
+
+```bash
+solana transaction-count
+```
+
+## Transaction Queries
+
+### Confirm Transaction
+
+Check if a transaction is confirmed:
+
+```bash
+solana confirm <SIGNATURE>
+```
+
+Output:
+```
+Confirmed
+```
+
+### Transaction History
+
+Show historical transactions for an address:
+
+```bash
+# Recent transactions
+solana transaction-history <ADDRESS>
+
+# Limit results
+solana transaction-history <ADDRESS> --limit 100
+
+# Display full transactions
+solana transaction-history <ADDRESS> --show-transactions
+
+# Pagination
+solana transaction-history <ADDRESS> --before <SIGNATURE>
+solana transaction-history <ADDRESS> --until <SIGNATURE>
+```
+
+### Recent Prioritization Fees
+
+Get recent prioritization fees:
+
+```bash
+# General fees
+solana recent-prioritization-fees
+
+# For specific accounts
+solana recent-prioritization-fees <ACCOUNT1> <ACCOUNT2>
+
+# Limit to recent slots
+solana recent-prioritization-fees --limit-num-slots 150
+```
+
+## Validator Information
+
+### Validators
+
+Show summary of current validators:
+
+```bash
+solana validators
+
+# Display in lamports
+solana validators --lamports
+
+# Number validators
+solana validators --number
+
+# Sort by different criteria
+solana validators --sort stake
+solana validators --sort commission
+solana validators --sort credits
+
+# Reverse sort order
+solana validators --reverse
+
+# Keep unstaked delinquent validators
+solana validators --keep-unstaked-delinquents
+```
+
+### Catchup
+
+Wait for a validator to catch up to the cluster:
+
+```bash
+solana catchup <VALIDATOR_PUBKEY>
+
+# Follow progress after catching up
+solana catchup <VALIDATOR_PUBKEY> --follow
+
+# Use validator's private RPC
+solana catchup <VALIDATOR_PUBKEY> <VALIDATOR_RPC_URL>
+```
+
+### Leader Schedule
+
+Display leader schedule:
+
+```bash
+# Current epoch
+solana leader-schedule
+
+# Specific epoch
+solana leader-schedule --epoch 456
+```
+
+## Stake Information
+
+### Stakes
+
+Show stake account information:
+
+```bash
+# All stakes
+solana stakes
+
+# Filter by vote account
+solana stakes <VOTE_ACCOUNT_PUBKEY>
+
+# Filter by withdraw authority
+solana stakes --withdraw-authority <PUBKEY>
+
+# Display in lamports
+solana stakes --lamports
+```
+
+### Stake History
+
+Show stake history:
+
+```bash
+# Recent epochs (default: 10)
+solana stake-history
+
+# Custom limit
+solana stake-history --limit 20
+
+# All epochs
+solana stake-history --limit 0
+
+# In lamports
+solana stake-history --lamports
+```
+
+### Stake Minimum Delegation
+
+Get minimum stake delegation amount:
+
+```bash
+solana stake-minimum-delegation
+
+# In lamports
+solana stake-minimum-delegation --lamports
+```
+
+## Block Production
+
+### Block Production Stats
+
+Show information about block production:
+
+```bash
+# Current epoch
+solana block-production
+
+# Specific epoch
+solana block-production --epoch 456
+
+# Limit to recent slots
+solana block-production --slot-limit 1000
+```
+
+## Gossip and Network
+
+### Gossip Network
+
+Show current gossip network nodes:
+
+```bash
+solana gossip
+```
+
+Displays:
+- Node pubkeys
+- IP addresses
+- Gossip ports
+- TPU ports
+
+### Live Slots
+
+Show real-time slot progression:
+
+```bash
+solana live-slots
+```
+
+Displays live updates of:
+- Current slot
+- Leader identity
+- Skipped slots
+
+### Ping
+
+Submit transactions sequentially to measure network performance:
+
+```bash
+# Ping with defaults
+solana ping
+
+# Custom interval (seconds)
+solana ping --interval 5
+
+# Limit number of pings
+solana ping --count 10
+
+# Print timestamps
+solana ping --print-timestamp
+
+# Custom timeout
+solana ping --timeout 30
+```
+
+## Streaming Logs
+
+### Transaction Logs
+
+Stream transaction logs in real-time:
+
+```bash
+# All transactions (except votes)
+solana logs
+
+# Include vote transactions
+solana logs --include-votes
+
+# Monitor specific address
+solana logs <ADDRESS>
+```
+
+## Utility Commands
+
+### Rent Calculation
+
+Calculate rent-exempt minimum for account size:
+
+```bash
+# By data length (bytes)
+solana rent 1024
+
+# Common account types
+solana rent nonce
+solana rent stake
+solana rent system
+solana rent vote
+
+# Display in lamports
+solana rent 1024 --lamports
+```
+
+### Wait for Max Stake
+
+Wait for maximum stake to drop below percentage:
+
+```bash
+solana wait-for-max-stake --max-percent 33
+```
+
+## Output Formats
+
+### JSON Output
+
+Get machine-readable output:
+
+```bash
+solana balance --output json
+solana epoch-info --output json
+solana validators --output json-compact
+```
+
+### Verbose Mode
+
+Get additional information:
+
+```bash
+solana cluster-version --verbose
+solana balance --verbose
+```
+
+## Commitment Levels
+
+Query with different confirmation levels:
+
+```bash
+# Processed (least secure, fastest)
+solana balance --commitment processed
+
+# Confirmed (moderate security)
+solana balance --commitment confirmed
+
+# Finalized (most secure, default)
+solana balance --commitment finalized
+```
+
+## Using Custom RPC
+
+Query different clusters:
+
+```bash
+# Mainnet
+solana balance --url https://api.mainnet-beta.solana.com
+
+# Devnet
+solana balance --url https://api.devnet.solana.com
+
+# Testnet
+solana balance --url https://api.testnet.solana.com
+
+# Custom RPC
+solana balance --url http://localhost:8899
+```
+
+## Common Query Patterns
+
+### Monitor Account
+
+Watch an account for changes:
+
+```bash
+# Watch balance
+watch -n 1 solana balance <ADDRESS>
+
+# Stream logs
+solana logs <ADDRESS>
+```
+
+### Check Validator Performance
+
+```bash
+# View validator info
+solana validators | grep <IDENTITY>
+
+# Check block production
+solana block-production --epoch $(solana epoch)
+
+# Monitor catchup status
+solana catchup <VALIDATOR> --follow
+```
+
+### Transaction Debugging
+
+```bash
+# Confirm transaction
+solana confirm <SIGNATURE>
+
+# View transaction details
+solana transaction-history <ADDRESS> --show-transactions --limit 1
+
+# Check recent fees
+solana recent-prioritization-fees
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Stake Management" icon="coins" href="/cli/stake-management">
+    Create and manage stake accounts
+  </Card>
+  <Card title="Program Deployment" icon="code" href="/cli/program-deployment">
+    Deploy and manage programs
+  </Card>
+</CardGroup>

@@ -1,0 +1,656 @@
+---
+title: Upgrade Procedures
+description: Safe upgrade and rollback procedures for Harmonic Salsa validators
+---
+
+# Upgrade Procedures
+
+This guide covers best practices for upgrading Harmonic Salsa validators, including version upgrades, rollback procedures, and zero-downtime updates.
+
+## Version Upgrade Strategy
+
+### Release Channels
+
+Harmonic Salsa follows the Agave release channel model:
+
+**Edge Channel:**
+- Tracks `master` branch
+- Least stable
+- Bleeding edge features
+- For testing only, never use in production
+
+**Beta Channel:**
+- Tracks latest `vX.Y` stabilization branch
+- More stable than edge
+- Suitable for testnet validators
+- Feature testing before mainnet deployment
+
+**Stable Channel:**
+- Tracks second-latest `vX.Y` stabilization branch
+- Most stable
+- Recommended for mainnet production validators
+- Battle-tested on testnet and beta
+
+### Version Numbering
+
+**Format:** `vX.Y.Z`
+- **X** - Major version (breaking changes)
+- **Y** - Minor version (new features, stabilization branch)
+- **Z** - Patch version (bug fixes)
+
+**Example:** v3.1.5
+- Major: 3
+- Minor: 1
+- Patch: 5
+
+### Upgrade Planning
+
+**Before Upgrading:**
+
+1. **Read Release Notes:**
+   - Check CHANGELOG.md in repository
+   - Review GitHub releases: https://github.com/anza-xyz/agave/releases
+   - Understand breaking changes and deprecations
+
+2. **Test on Testnet:**
+   - Always test new versions on testnet first
+   - Run for at least 24-48 hours
+   - Monitor performance and stability
+
+3. **Check Compatibility:**
+   - Verify snapshot format compatibility
+   - Check for removed command-line arguments
+   - Review any feature gate activations
+
+4. **Plan Timing:**
+   - Avoid upgrading during high-stake events
+   - Consider cluster epoch boundaries
+   - Schedule during low-activity periods
+   - Coordinate with stake delegators if needed
+
+## Pre-Upgrade Checklist
+
+**Critical Steps:**
+
+- [ ] **Backup Configuration:**
+  ```bash
+  # Backup current configuration
+  mkdir -p ~/validator-backup-$(date +%Y%m%d)
+  cp /home/sol/bin/validator.sh ~/validator-backup-$(date +%Y%m%d)/
+  cp /etc/systemd/system/sol.service ~/validator-backup-$(date +%Y%m%d)/
+  ```
+
+- [ ] **Document Current Version:**
+  ```bash
+  # Record current version
+  agave-validator --version > ~/current-version.txt
+  solana --version >> ~/current-version.txt
+  ```
+
+- [ ] **Verify Validator Health:**
+  ```bash
+  # Ensure validator is healthy before upgrade
+  solana validators | grep $(solana-keygen pubkey ~/validator-keypair.json)
+  solana catchup $(solana-keygen pubkey ~/validator-keypair.json)
+  ```
+
+- [ ] **Check Disk Space:**
+  ```bash
+  # Ensure adequate space for upgrade
+  df -h /mnt/ledger
+  df -h /mnt/accounts
+  ```
+
+- [ ] **Verify Account Balances:**
+  ```bash
+  # Ensure sufficient balance for voting
+  solana balance $(solana-keygen pubkey ~/vote-account-keypair.json)
+  ```
+
+- [ ] **Review Breaking Changes:**
+  - Check CHANGELOG.md for version-specific changes
+  - Note any deprecated arguments to remove
+  - Identify new required arguments
+
+## Upgrade Procedure
+
+### Standard Upgrade (With Downtime)
+
+This is the safest upgrade method, accepting brief downtime.
+
+**Step 1: Build New Version**
+
+```bash
+# On a separate build machine or in separate directory
+cd ~/salsa-upgrade
+git fetch --all
+git checkout v3.1.5  # Replace with desired version
+
+# Build release version (CRITICAL - never use debug)
+./cargo build --release
+
+# Verify build
+./target/release/agave-validator --version
+```
+
+**Step 2: Stop Current Validator**
+
+```bash
+# Graceful shutdown (IMPORTANT for v2.3+)
+sudo systemctl stop sol
+
+# Verify stopped
+sudo systemctl status sol
+ps aux | grep agave-validator
+```
+
+**Note:** Graceful exit is required in v2.3+ to boot from local state. Ungraceful shutdown may require downloading snapshots on restart.
+
+**Step 3: Backup Current Binary**
+
+```bash
+# Backup existing binary
+sudo cp /usr/local/bin/agave-validator \
+  /usr/local/bin/agave-validator.backup.$(date +%Y%m%d)
+```
+
+**Step 4: Install New Binary**
+
+```bash
+# Copy new binary
+sudo cp ~/salsa-upgrade/target/release/agave-validator /usr/local/bin/
+
+# Update associated tools
+sudo cp ~/salsa-upgrade/target/release/solana* /usr/local/bin/
+
+# Verify installation
+agave-validator --version
+```
+
+**Step 5: Update Configuration (If Needed)**
+
+```bash
+# Edit validator.sh for any new/changed arguments
+nano /home/sol/bin/validator.sh
+
+# Example: Remove deprecated arguments
+# --accounts-db-clean-threads  # Deprecated in v3.0
+# --transaction-structure view # Now default in v3.0
+
+# Example: Add new arguments
+# --block-production-method central-scheduler-greedy  # New default
+```
+
+**Step 6: Start Validator**
+
+```bash
+# Reload systemd if service file changed
+sudo systemctl daemon-reload
+
+# Start validator
+sudo systemctl start sol
+
+# Monitor startup
+journalctl -u sol -f
+```
+
+**Step 7: Verify Upgrade**
+
+```bash
+# Check version
+agave-validator --version
+
+# Monitor logs for errors
+tail -f /home/sol/agave-validator.log | grep -i error
+
+# Check process is running
+ps aux | grep agave-validator
+
+# Verify in gossip
+solana gossip | grep $(solana-keygen pubkey ~/validator-keypair.json)
+
+# Monitor catchup
+watch -n 10 'solana catchup <validator-pubkey>'
+```
+
+**Step 8: Monitor Performance**
+
+Monitor for at least 24 hours:
+- Check skip rate
+- Verify vote credits increasing
+- Monitor resource usage
+- Review logs for errors
+- Confirm no delinquency
+
+### Zero-Downtime Upgrade
+
+For critical validators requiring minimal downtime, use restart windows.
+
+**Prerequisites:**
+- Good understanding of cluster restart windows
+- Monitoring and alerting in place
+- Tested upgrade procedure
+
+**Procedure:**
+
+1. **Identify Restart Window:**
+   ```bash
+   # Check current epoch progress
+   solana epoch-info
+   
+   # Wait for appropriate restart window
+   # Typically mid-epoch when tower voting allows
+   ```
+
+2. **Prepare Binary in Advance:**
+   ```bash
+   # Build and stage new binary
+   sudo cp new-agave-validator /usr/local/bin/agave-validator.new
+   ```
+
+3. **Quick Swap During Window:**
+   ```bash
+   # Stop validator
+   sudo systemctl stop sol
+   
+   # Swap binary
+   sudo mv /usr/local/bin/agave-validator /usr/local/bin/agave-validator.old
+   sudo mv /usr/local/bin/agave-validator.new /usr/local/bin/agave-validator
+   
+   # Start immediately
+   sudo systemctl start sol
+   ```
+
+4. **Monitor Recovery:**
+   ```bash
+   # Should catchup quickly from local state
+   solana catchup <validator-pubkey>
+   ```
+
+### Automated Upgrade Script
+
+**WARNING:** Only use automation after thoroughly testing manual upgrades.
+
+```bash
+#!/bin/bash
+# upgrade-validator.sh - Automated validator upgrade
+
+set -e  # Exit on error
+
+NEW_VERSION="$1"
+BUILD_DIR="$HOME/salsa-upgrade"
+BINARY_PATH="/usr/local/bin/agave-validator"
+BACKUP_PATH="$BINARY_PATH.backup.$(date +%Y%m%d-%H%M%S)"
+
+if [ -z "$NEW_VERSION" ]; then
+    echo "Usage: $0 <version>"
+    echo "Example: $0 v3.1.5"
+    exit 1
+fi
+
+echo "=== Validator Upgrade to $NEW_VERSION ==="
+
+# Build new version
+echo "Building version $NEW_VERSION..."
+cd "$BUILD_DIR"
+git fetch --all
+git checkout "$NEW_VERSION"
+./cargo build --release
+
+# Verify build
+echo "Verifying build..."
+./target/release/agave-validator --version | grep "$NEW_VERSION"
+
+# Stop validator
+echo "Stopping validator..."
+sudo systemctl stop sol
+sleep 5
+
+# Backup current binary
+echo "Backing up current binary..."
+sudo cp "$BINARY_PATH" "$BACKUP_PATH"
+
+# Install new binary
+echo "Installing new binary..."
+sudo cp "$BUILD_DIR/target/release/agave-validator" "$BINARY_PATH"
+
+# Start validator
+echo "Starting validator..."
+sudo systemctl start sol
+
+echo "Upgrade complete!"
+echo "Monitor with: journalctl -u sol -f"
+```
+
+## Rollback Procedures
+
+### When to Rollback
+
+Rollback if:
+- Validator fails to start after upgrade
+- Critical errors in logs
+- Unexpected performance degradation
+- High skip rate or delinquency
+- Incompatibility with cluster
+
+### Quick Rollback
+
+**Step 1: Stop Current Version**
+
+```bash
+sudo systemctl stop sol
+```
+
+**Step 2: Restore Previous Binary**
+
+```bash
+# Find backup
+ls -lt /usr/local/bin/agave-validator.backup.*
+
+# Restore (use appropriate backup date)
+sudo cp /usr/local/bin/agave-validator.backup.20260308 \
+  /usr/local/bin/agave-validator
+
+# Verify version
+agave-validator --version
+```
+
+**Step 3: Restore Configuration**
+
+```bash
+# If validator.sh was changed
+cp ~/validator-backup-20260308/validator.sh /home/sol/bin/validator.sh
+chmod +x /home/sol/bin/validator.sh
+```
+
+**Step 4: Restart Validator**
+
+```bash
+sudo systemctl start sol
+
+# Monitor startup
+journalctl -u sol -f
+```
+
+**Step 5: Verify Rollback**
+
+```bash
+# Check version
+agave-validator --version
+
+# Monitor logs
+tail -f /home/sol/agave-validator.log
+
+# Check gossip
+solana gossip | grep $(solana-keygen pubkey ~/validator-keypair.json)
+```
+
+### Handling Data Incompatibility
+
+If new version modified blockstore format:
+
+**Option 1: Keep New Data (Forward Only)**
+- Some versions create incompatible blockstore changes
+- Rollback may require fresh snapshot download
+- Review release notes for compatibility
+
+**Option 2: Restore from Backup**
+```bash
+# Only if ledger was backed up before upgrade
+sudo systemctl stop sol
+rm -rf /mnt/ledger
+cp -r /mnt/ledger.backup.20260308 /mnt/ledger
+chown -R sol:sol /mnt/ledger
+sudo systemctl start sol
+```
+
+**Option 3: Fresh Start**
+```bash
+# Nuclear option: delete ledger and redownload snapshot
+sudo systemctl stop sol
+rm -rf /mnt/ledger/*
+sudo systemctl start sol
+# Will download fresh snapshot and catchup
+```
+
+## Snapshot Compatibility
+
+### Understanding Snapshot Versions
+
+**Snapshot Format Changes:**
+- Major versions may change snapshot format
+- Typically backward compatible for one minor version
+- v2.2 snapshots compatible with v2.1 but not v2.0
+
+**Checking Compatibility:**
+Review CHANGELOG.md for entries like:
+```
+## 2.2.0
+### Validator
+#### Breaking
+* Snapshot format change
+  * Snapshots created with v2.2 compatible with v2.1
+  * Incompatible with v2.0 and older
+```
+
+### Managing Snapshot Upgrades
+
+**Before Upgrading:**
+```bash
+# Optional: Create snapshot before upgrade
+sudo systemctl stop sol
+agave-ledger-tool create-snapshot \
+  --ledger /mnt/ledger \
+  --snapshot-archive-path /mnt/snapshots/manual \
+  <slot-number>
+sudo systemctl start sol
+```
+
+**After Upgrade:**
+- New format snapshots generated automatically
+- Old format snapshots remain readable (if compatible)
+- Can rollback while old snapshots available
+
+## Maintenance Windows
+
+### Planning Maintenance
+
+**Best Times for Upgrades:**
+1. **Mid-Epoch:**
+   - After leader schedule generation
+   - Before critical voting periods
+   - Check with: `solana epoch-info`
+
+2. **Low Stake Periods:**
+   - When validator has fewer leader slots
+   - Minimize impact on network
+
+3. **Coordinated Windows:**
+   - Follow cluster upgrade schedules
+   - Monitor Discord announcements
+   - Align with other validators when possible
+
+**Avoid Upgrading During:**
+- Epoch boundaries
+- High-stakes events or campaigns
+- Known cluster instability
+- Your leader slot assignments
+- Network-wide upgrades (wait for stability)
+
+### Communication
+
+**Notify Stakeholders:**
+If running a public validator:
+1. Announce maintenance window in advance
+2. Provide expected downtime
+3. Share upgrade version and reasons
+4. Post-upgrade status update
+
+**Channels:**
+- Twitter/social media
+- Validator website
+- Discord announcements
+- Stake pool communications
+
+## Version-Specific Upgrade Notes
+
+### Upgrading to v3.0+
+
+**Breaking Changes:**
+- XDP requires additional capabilities
+- Many deprecated arguments removed
+- Dynamic port range now includes client ports (need 25+ ports)
+- Snapshot format changes
+- Legacy shreds no longer supported
+
+**Required Updates:**
+```bash
+# systemd service requires (if using XDP):
+CapabilityBoundingSet=CAP_NET_RAW CAP_NET_ADMIN CAP_BPF CAP_PERFMON
+
+# Or set on binary:
+sudo setcap cap_net_raw,cap_net_admin,cap_bpf,cap_perfmon=p \
+  /usr/local/bin/agave-validator
+
+# Increase MEMLOCK limit:
+LimitMEMLOCK=2000000000
+
+# Remove deprecated arguments from validator.sh:
+# --accounts-index-memory-limit-mb
+# --disable-quic-servers, --enable-quic-servers
+# --skip-poh-verify
+# --snapshot-interval-slots 0 (use --no-snapshots instead)
+```
+
+### Upgrading to v2.0+
+
+**Breaking Changes:**
+- Removed obsolete RPC v1 endpoints
+- Deprecated RpcClient methods removed
+- Snapshot format changes (SIMD-215)
+
+**Configuration Updates:**
+```bash
+# Remove from validator.sh:
+# --enable-rpc-obsolete_v1_7
+# --accounts-db-caching-enabled
+# --incremental-snapshots
+```
+
+## Post-Upgrade Monitoring
+
+### Critical Metrics (First 24 Hours)
+
+**Immediate (0-1 Hour):**
+- [ ] Process running
+- [ ] No critical errors in logs
+- [ ] Validator in gossip
+- [ ] Beginning catchup
+
+**Short-term (1-6 Hours):**
+- [ ] Catchup completed
+- [ ] Voting resumed
+- [ ] Skip rate normal (less than 5%)
+- [ ] Resource usage normal
+
+**Medium-term (6-24 Hours):**
+- [ ] Vote credits increasing
+- [ ] No delinquency
+- [ ] Performance stable
+- [ ] No memory leaks
+
+**Long-term (24+ Hours):**
+- [ ] Consistent performance
+- [ ] No degradation trends
+- [ ] Stakeholder feedback positive
+
+### Monitoring Commands
+
+```bash
+# Quick health check script
+#!/bin/bash
+VALIDATOR_PUBKEY=$(solana-keygen pubkey ~/validator-keypair.json)
+
+echo "=== Validator Health Check ==="
+echo "Version: $(agave-validator --version)"
+echo ""
+
+echo "In Gossip:"
+solana gossip | grep "$VALIDATOR_PUBKEY" || echo "NOT IN GOSSIP"
+echo ""
+
+echo "Validator Status:"
+solana validators | grep "$VALIDATOR_PUBKEY" || echo "NOT IN VALIDATOR LIST"
+echo ""
+
+echo "Catchup Status:"
+solana catchup "$VALIDATOR_PUBKEY"
+echo ""
+
+echo "Recent Errors:"
+tail -100 /home/sol/agave-validator.log | grep ERROR | tail -5
+```
+
+## Troubleshooting Upgrades
+
+### Upgrade Failed to Start
+
+**Issue:** Validator won't start after upgrade
+
+**Resolution:**
+1. Check logs for specific error
+2. Verify all deprecated arguments removed
+3. Check for new required arguments
+4. Verify binary compatibility
+5. Rollback if needed
+
+### Performance Degradation
+
+**Issue:** Higher skip rate or resource usage after upgrade
+
+**Resolution:**
+1. Monitor for 6-12 hours (may stabilize)
+2. Check release notes for known issues
+3. Verify system resources adequate
+4. Review new default settings
+5. Consider rollback if persistent
+
+### Snapshot Download Loop
+
+**Issue:** Continuously downloading snapshots
+
+**Resolution:**
+1. Verify snapshot compatibility
+2. Check disk space
+3. Verify known validators are responsive
+4. Check network connectivity
+5. May need to download from specific validator
+
+## Best Practices Summary
+
+**Always:**
+- Read release notes thoroughly
+- Test on testnet first
+- Backup configuration before upgrade
+- Use graceful shutdown (v2.3+)
+- Monitor for 24+ hours post-upgrade
+- Keep previous binary for quick rollback
+
+**Never:**
+- Upgrade without reading changelog
+- Skip testnet testing for major versions
+- Upgrade during epoch boundaries
+- Use debug builds in production
+- Upgrade multiple major versions at once
+
+**Remember:**
+- Validator uptime directly impacts rewards
+- Rushed upgrades cause more downtime than planned ones
+- Community support available in Discord
+- When in doubt, wait for cluster stability
+
+For additional information, refer to:
+- RELEASE.md in repository
+- CHANGELOG.md for version-specific changes
+- GitHub releases for detailed notes
+- Discord #validator-support for help

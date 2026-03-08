@@ -1,0 +1,698 @@
+---
+title: Troubleshooting
+description: Common issues and solutions for Harmonic Salsa validators
+---
+
+# Troubleshooting
+
+This guide covers common issues you may encounter when running a Harmonic Salsa validator and their solutions.
+
+## Connection Problems
+
+### Validator Not Connecting to Network
+
+**Symptoms:**
+- Validator shows 0 peers in gossip
+- Cannot find entrypoints
+- Network timeout errors
+
+**Solutions:**
+
+1. **Check network connectivity:**
+   ```bash
+   ping entrypoint.mainnet-beta.solana.com
+   ```
+
+2. **Verify entrypoints are correct:**
+   ```bash
+   # For mainnet
+   --entrypoint entrypoint.mainnet-beta.solana.com:8001
+   
+   # For testnet
+   --entrypoint entrypoint.testnet.solana.com:8001
+   ```
+
+3. **Check firewall settings:**
+   ```bash
+   # Allow required ports
+   sudo ufw allow 8000:8020/tcp
+   sudo ufw allow 8000:8020/udp
+   ```
+
+4. **Verify ports are open:**
+   ```bash
+   # Test if gossip port is accessible
+   nc -zv entrypoint.mainnet-beta.solana.com 8001
+   ```
+
+5. **Check if validator is binding to correct interface:**
+   ```bash
+   # Verify bind address
+   --bind-address 0.0.0.0
+   ```
+
+### Low Peer Count
+
+**Symptoms:**
+- Fewer than 50 peers
+- Intermittent connectivity
+
+**Solutions:**
+
+1. **Add more entrypoints:**
+   ```bash
+   --entrypoint entrypoint.mainnet-beta.solana.com:8001 \
+   --entrypoint entrypoint2.mainnet-beta.solana.com:8001 \
+   --entrypoint entrypoint3.mainnet-beta.solana.com:8001
+   ```
+
+2. **Check for rate limiting:**
+   - Verify your IP is not being rate-limited
+   - Check with your hosting provider
+
+3. **Verify system resources:**
+   ```bash
+   # Check open file limit
+   ulimit -n
+   # Should be at least 500000
+   ```
+
+4. **Increase connection limits if needed:**
+   ```bash
+   # In /etc/security/limits.conf
+   * soft nofile 1000000
+   * hard nofile 1000000
+   ```
+
+### RPC Connection Refused
+
+**Symptoms:**
+- Cannot connect to local RPC
+- "Connection refused" errors
+
+**Solutions:**
+
+1. **Verify RPC is enabled:**
+   ```bash
+   --rpc-port 8899
+   ```
+
+2. **Check RPC bind address:**
+   ```bash
+   # For local access only
+   --rpc-bind-address 127.0.0.1
+   
+   # For external access
+   --rpc-bind-address 0.0.0.0
+   ```
+
+3. **Test RPC locally:**
+   ```bash
+   curl -X POST -H "Content-Type: application/json" -d '{"jsonrpc":"2.0","id":1,"method":"getHealth"}' http://localhost:8899
+   ```
+
+4. **Check if port is in use:**
+   ```bash
+   sudo lsof -i :8899
+   ```
+
+## Sync Issues
+
+### Validator Not Catching Up
+
+**Symptoms:**
+- Catchup percentage stuck below 100%
+- Slot number far behind network
+- High "distance from network" value
+
+**Solutions:**
+
+1. **Check system resources:**
+   ```bash
+   # CPU usage should be below 90%
+   top -p $(pgrep agave-validator)
+   
+   # Check disk I/O wait
+   iostat -x 5
+   ```
+
+2. **Verify snapshot download:**
+   ```bash
+   # Check logs for snapshot download
+   sudo journalctl -u agave-validator | grep snapshot
+   ```
+
+3. **Try downloading from different validator:**
+   ```bash
+   # Add more known validators
+   --known-validator <PUBKEY>
+   ```
+
+4. **Clear ledger and resync:**
+   ```bash
+   sudo systemctl stop agave-validator
+   rm -rf ~/validator-ledger
+   sudo systemctl start agave-validator
+   ```
+
+5. **Check bandwidth:**
+   ```bash
+   # Monitor network usage
+   iftop
+   ```
+
+### Slow Snapshot Download
+
+**Symptoms:**
+- Snapshot download taking hours
+- Slow download speed in logs
+
+**Solutions:**
+
+1. **Increase minimum download speed:**
+   ```bash
+   --minimal-snapshot-download-speed 20971520  # 20 MB/s
+   ```
+
+2. **Add more known validators:**
+   ```bash
+   --known-validator 7Np41oeYqPefeNQEHSv1UDhYrehxin3NStELsSKCT4K2 \
+   --known-validator GdnSyH3YtwcxFvQrVVJMm1JhTS4QVX7MFsX56uJLUfiZ
+   ```
+
+3. **Check network congestion:**
+   ```bash
+   # Test bandwidth
+   speedtest-cli
+   ```
+
+4. **Consider pre-downloading snapshot:**
+   - Download snapshot archive from a trusted source
+   - Extract to ledger directory
+
+### Validator Keeps Restarting During Catchup
+
+**Symptoms:**
+- Validator crashes during replay
+- Out of memory errors
+- Database corruption errors
+
+**Solutions:**
+
+1. **Check memory usage:**
+   ```bash
+   free -h
+   # Ensure adequate free memory
+   ```
+
+2. **Verify disk space:**
+   ```bash
+   df -h
+   # Ensure at least 20% free space
+   ```
+
+3. **Check for disk errors:**
+   ```bash
+   sudo dmesg | grep -i error
+   ```
+
+4. **Increase swap if needed:**
+   ```bash
+   sudo fallocate -l 32G /swapfile
+   sudo chmod 600 /swapfile
+   sudo mkswap /swapfile
+   sudo swapon /swapfile
+   ```
+
+5. **Verify RocksDB settings:**
+   ```bash
+   # Use appropriate compression
+   --rocksdb-ledger-compression lz4
+   ```
+
+## Performance Problems
+
+### High CPU Usage
+
+**Symptoms:**
+- CPU consistently above 90%
+- Validator lagging behind network
+- High system load
+
+**Solutions:**
+
+1. **Check CPU allocation:**
+   ```bash
+   lscpu
+   # Verify core count and speed
+   ```
+
+2. **Optimize thread settings:**
+   ```bash
+   --unified-scheduler-handler-threads 4
+   ```
+
+3. **Reduce QUIC endpoints if needed:**
+   ```bash
+   --num-quic-endpoints 4
+   ```
+
+4. **Check for competing processes:**
+   ```bash
+   top
+   # Look for other CPU-intensive processes
+   ```
+
+5. **Verify CPU governor:**
+   ```bash
+   cat /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor
+   # Should be "performance"
+   
+   # Set to performance mode
+   echo performance | sudo tee /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor
+   ```
+
+### High Memory Usage
+
+**Symptoms:**
+- Memory usage growing over time
+- System using swap heavily
+- OOM killer terminating processes
+
+**Solutions:**
+
+1. **Enable disk-based accounts index:**
+   ```bash
+   --enable-accounts-disk-index \
+   --accounts-index-path /mnt/nvme3/accounts-index
+   ```
+
+2. **Reduce accounts cache:**
+   ```bash
+   --accounts-db-cache-limit-mb 8000
+   ```
+
+3. **Limit snapshot retention:**
+   ```bash
+   --maximum-full-snapshots-to-retain 2 \
+   --maximum-incremental-snapshots-to-retain 4
+   ```
+
+4. **Monitor for memory leaks:**
+   ```bash
+   # Watch memory over time
+   watch -n 60 'ps aux | grep agave-validator | grep -v grep'
+   ```
+
+### Slow Disk I/O
+
+**Symptoms:**
+- High I/O wait time
+- Slow ledger replay
+- Banking stage lag
+
+**Solutions:**
+
+1. **Verify disk performance:**
+   ```bash
+   sudo fio --name=random-read --ioengine=libaio --iodepth=32 --rw=randread --bs=4k --direct=1 --size=1G --runtime=60
+   ```
+
+2. **Use separate drives:**
+   ```bash
+   --ledger /mnt/nvme0/ledger \
+   --accounts /mnt/nvme1/accounts \
+   --snapshots /mnt/nvme2/snapshots
+   ```
+
+3. **Check disk health:**
+   ```bash
+   sudo smartctl -a /dev/nvme0n1
+   ```
+
+4. **Optimize RocksDB:**
+   ```bash
+   --rocksdb-shred-compaction level
+   ```
+
+5. **Monitor disk usage:**
+   ```bash
+   sudo iotop -o
+   ```
+
+### Network Bandwidth Exhausted
+
+**Symptoms:**
+- High packet loss
+- Slow block reception
+- Network timeouts
+
+**Solutions:**
+
+1. **Monitor bandwidth usage:**
+   ```bash
+   iftop -i eth0
+   ```
+
+2. **Limit QUIC connections:**
+   ```bash
+   --tpu-max-staked-connections 1000 \
+   --tpu-max-unstaked-connections 200
+   ```
+
+3. **Verify network hardware:**
+   - Check for 1 Gbps link
+   - Verify no errors on interface:
+     ```bash
+     ethtool -S eth0 | grep errors
+     ```
+
+4. **Consider upgrade:**
+   - Upgrade to 10 Gbps if available
+
+## Voting Issues
+
+### Validator Not Voting
+
+**Symptoms:**
+- No votes being submitted
+- Vote credits not increasing
+- Validator marked as delinquent
+
+**Solutions:**
+
+1. **Verify vote account configuration:**
+   ```bash
+   solana vote-account $(solana-keygen pubkey ~/vote-account-keypair.json)
+   ```
+
+2. **Check validator identity has SOL:**
+   ```bash
+   solana balance ~/validator-keypair.json
+   # Should have enough for vote fees
+   ```
+
+3. **Verify vote account authority:**
+   ```bash
+   # Ensure identity matches vote account authority
+   solana vote-account $(solana-keygen pubkey ~/vote-account-keypair.json) | grep "Vote Authority"
+   ```
+
+4. **Check for `--no-voting` flag:**
+   ```bash
+   # Ensure not running with --no-voting
+   ps aux | grep agave-validator | grep no-voting
+   ```
+
+5. **Review logs for vote errors:**
+   ```bash
+   sudo journalctl -u agave-validator | grep -i "vote.*error"
+   ```
+
+### High Skip Rate
+
+**Symptoms:**
+- Block production skip rate above 5%
+- Missing leader slots
+- Poor performance metrics
+
+**Solutions:**
+
+1. **Check system performance:**
+   ```bash
+   # Verify adequate resources
+   top
+   iostat -x 5
+   ```
+
+2. **Verify network connectivity:**
+   ```bash
+   # Check latency to other validators
+   ping -c 10 <peer-ip>
+   ```
+
+3. **Optimize block production:**
+   ```bash
+   --block-production-method central-scheduler
+   ```
+
+4. **Check PoH speed:**
+   ```bash
+   # Look for PoH speed warnings in logs
+   sudo journalctl -u agave-validator | grep "PoH speed"
+   ```
+
+5. **Consider hardware upgrade:**
+   - Faster CPU for PoH
+   - Faster NVMe for ledger access
+
+## Log Analysis
+
+### Understanding Common Errors
+
+#### "Slot X is not a descendant of Y"
+
+**Cause:** Fork mismatch during replay
+
+**Solution:**
+- Usually resolves automatically
+- If persistent, may need to clear ledger and resync
+
+#### "Transaction would exceed account data limit"
+
+**Cause:** Transaction trying to allocate too much data
+
+**Solution:**
+- Not a validator issue
+- Transaction submitter needs to fix
+
+#### "Blockstore error: SlotNotRooted"
+
+**Cause:** Accessing non-rooted slot data
+
+**Solution:**
+- Usually transient
+- If persistent, check ledger integrity
+
+#### "Tower vote failed"
+
+**Cause:** Issue with tower voting logic
+
+**Solution:**
+- Check tower file integrity
+- Review recent consensus changes
+- May need to reset tower (only if instructed)
+
+### Log Filtering
+
+Set appropriate log levels:
+
+```bash
+# Default info level
+agave-validator set-log-filter info
+
+# Debug specific components
+agave-validator set-log-filter solana_core=debug,solana_runtime=info
+
+# Trace transaction processing
+agave-validator set-log-filter solana_runtime::message_processor=trace
+```
+
+## Database Issues
+
+### RocksDB Corruption
+
+**Symptoms:**
+- "Corruption: bad block contents" errors
+- Validator crashes on startup
+- Database errors in logs
+
+**Solutions:**
+
+1. **Stop validator:**
+   ```bash
+   sudo systemctl stop agave-validator
+   ```
+
+2. **Backup current state:**
+   ```bash
+   cp -r ~/validator-ledger ~/validator-ledger.backup
+   ```
+
+3. **Clear corrupted database:**
+   ```bash
+   rm -rf ~/validator-ledger/rocksdb
+   ```
+
+4. **Restart validator:**
+   ```bash
+   sudo systemctl start agave-validator
+   ```
+
+5. **If issue persists, full resync:**
+   ```bash
+   rm -rf ~/validator-ledger
+   sudo systemctl start agave-validator
+   ```
+
+### Accounts Database Issues
+
+**Symptoms:**
+- Account verification failures
+- Accounts hash mismatch
+- Bank hash mismatch
+
+**Solutions:**
+
+1. **Verify accounts integrity:**
+   ```bash
+   --accounts-db-verify-refcounts
+   ```
+
+2. **Clear accounts cache:**
+   ```bash
+   sudo systemctl stop agave-validator
+   rm -rf ~/validator-ledger/accounts_cache
+   sudo systemctl start agave-validator
+   ```
+
+3. **Full accounts resync:**
+   ```bash
+   sudo systemctl stop agave-validator
+   rm -rf ~/validator-ledger/accounts
+   sudo systemctl start agave-validator
+   ```
+
+## Emergency Procedures
+
+### Validator Completely Stuck
+
+1. **Check if process is responsive:**
+   ```bash
+   pgrep agave-validator
+   ```
+
+2. **Try graceful shutdown:**
+   ```bash
+   agave-validator exit --force
+   ```
+
+3. **If unresponsive, force kill:**
+   ```bash
+   sudo killall -9 agave-validator
+   ```
+
+4. **Check for core dumps:**
+   ```bash
+   ls -lh /var/crash/
+   ```
+
+5. **Review system logs:**
+   ```bash
+   sudo journalctl -xe
+   ```
+
+6. **Restart validator:**
+   ```bash
+   sudo systemctl start agave-validator
+   ```
+
+### Recovering from Delinquency
+
+**Steps:**
+
+1. **Verify validator is caught up:**
+   ```bash
+   solana catchup $(solana-keygen pubkey ~/validator-keypair.json)
+   ```
+
+2. **Check vote account status:**
+   ```bash
+   solana vote-account $(solana-keygen pubkey ~/vote-account-keypair.json)
+   ```
+
+3. **Monitor for vote submission:**
+   ```bash
+   sudo journalctl -u agave-validator -f | grep vote
+   ```
+
+4. **Wait for next epoch:**
+   - Delinquency clears at epoch boundary
+   - Continue monitoring vote credits
+
+5. **If still delinquent, check:**
+   - System resources
+   - Network connectivity
+   - Vote account balance
+
+## Getting Help
+
+### Diagnostic Information to Collect
+
+When seeking help, gather:
+
+1. **Validator version:**
+   ```bash
+   agave-validator --version
+   ```
+
+2. **System info:**
+   ```bash
+   uname -a
+   lscpu
+   free -h
+   df -h
+   ```
+
+3. **Recent logs:**
+   ```bash
+   sudo journalctl -u agave-validator --since "1 hour ago" > validator-logs.txt
+   ```
+
+4. **Configuration:**
+   ```bash
+   ps aux | grep agave-validator
+   ```
+
+5. **Network status:**
+   ```bash
+   solana gossip | grep $(solana-keygen pubkey ~/validator-keypair.json)
+   solana catchup $(solana-keygen pubkey ~/validator-keypair.json)
+   ```
+
+### Community Resources
+
+- **Harmonic Discord**: Technical support channel
+- **Solana Discord**: General validator questions
+- **GitHub Issues**: Report bugs at https://github.com/harmonic/salsa/issues
+
+## Preventive Maintenance
+
+<CardGroup cols={2}>
+  <Card title="Regular Backups" icon="floppy-disk">
+    Backup keypairs and tower state regularly.
+  </Card>
+  <Card title="Monitor Metrics" icon="chart-line">
+    Set up comprehensive monitoring and alerts.
+  </Card>
+  <Card title="Keep Updated" icon="arrow-up">
+    Stay current with validator software updates.
+  </Card>
+  <Card title="Test Changes" icon="flask">
+    Test configuration changes on testnet first.
+  </Card>
+</CardGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Configuration" icon="sliders" href="/validator/configuration">
+    Review and optimize your configuration
+  </Card>
+  <Card title="Monitoring" icon="chart-line" href="/validator/monitoring">
+    Set up better monitoring to catch issues early
+  </Card>
+  <Card title="Operations" icon="play" href="/validator/operations">
+    Learn more operational best practices
+  </Card>
+</CardGroup>

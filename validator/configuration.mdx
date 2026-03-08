@@ -1,0 +1,689 @@
+---
+title: Validator Configuration
+description: Comprehensive guide to configuring your Harmonic Salsa validator
+---
+
+# Validator Configuration
+
+This guide covers all the configuration options available for the Harmonic Salsa validator.
+
+## Core Configuration
+
+### Identity and Vote Account
+
+#### `--identity` (required)
+
+Path to the validator's identity keypair.
+
+```bash
+--identity ~/validator-keypair.json
+```
+
+#### `--vote-account`
+
+Public key or keypair for the vote account. Required for consensus participation.
+
+```bash
+--vote-account ~/vote-account-keypair.json
+```
+
+#### `--authorized-voter`
+
+Additional authorized voter keypairs. Can be specified multiple times.
+
+```bash
+--authorized-voter ~/voter-1.json \
+--authorized-voter ~/voter-2.json
+```
+
+### Ledger and Storage
+
+#### `--ledger`
+
+Directory for ledger storage.
+
+```bash
+--ledger ~/validator-ledger
+```
+
+#### `--accounts`
+
+Persistent accounts storage location. Can be specified multiple times for multiple drives.
+
+```bash
+--accounts /mnt/nvme0/accounts \
+--accounts /mnt/nvme1/accounts
+```
+
+#### `--account-shrink-path`
+
+Path for accounts shrink operations.
+
+```bash
+--account-shrink-path /mnt/nvme2/shrink
+```
+
+#### `--snapshots`
+
+Base directory for snapshots.
+
+```bash
+--snapshots ~/validator-snapshots
+```
+
+#### `--tower`
+
+Directory for tower storage (voting record).
+
+```bash
+--tower ~/validator-tower
+```
+
+### Network Configuration
+
+#### `--entrypoint`
+
+Gossip entrypoint for network bootstrapping. Specify multiple for redundancy.
+
+```bash
+--entrypoint entrypoint.mainnet-beta.solana.com:8001 \
+--entrypoint entrypoint2.mainnet-beta.solana.com:8001 \
+--entrypoint entrypoint3.mainnet-beta.solana.com:8001
+```
+
+#### `--known-validator`
+
+Trusted validators for snapshot and genesis verification. Specify multiple.
+
+```bash
+--known-validator 7Np41oeYqPefeNQEHSv1UDhYrehxin3NStELsSKCT4K2 \
+--known-validator GdnSyH3YtwcxFvQrVVJMm1JhTS4QVX7MFsX56uJLUfiZ
+```
+
+#### `--bind-address`
+
+IP address to bind validator ports. Can be specified multiple times.
+
+```bash
+--bind-address 0.0.0.0
+```
+
+#### `--gossip-port`
+
+Port for gossip protocol.
+
+```bash
+--gossip-port 8001
+```
+
+#### `--dynamic-port-range`
+
+Range of ports for dynamically assigned services.
+
+```bash
+--dynamic-port-range 8000-8020
+```
+
+#### `--public-tpu-address`
+
+Public TPU address to advertise in gossip.
+
+```bash
+--public-tpu-address my-validator.com:8003
+```
+
+#### `--public-rpc-address`
+
+Public RPC address to advertise (when running RPC behind load balancer).
+
+```bash
+--public-rpc-address rpc.my-validator.com:8899
+```
+
+## RPC Configuration
+
+### Basic RPC Settings
+
+#### `--rpc-port`
+
+Enable JSON-RPC on specified port.
+
+```bash
+--rpc-port 8899
+```
+
+#### `--rpc-bind-address`
+
+IP address for RPC server.
+
+```bash
+--rpc-bind-address 127.0.0.1
+```
+
+#### `--private-rpc`
+
+Do not publish RPC port in gossip.
+
+```bash
+--private-rpc
+```
+
+### Advanced RPC Options
+
+#### `--full-rpc-api`
+
+Enable all RPC methods (use with caution).
+
+```bash
+--full-rpc-api
+```
+
+#### `--no-port-check`
+
+Skip TCP/UDP port reachability checks at startup.
+
+```bash
+--no-port-check
+```
+
+## Snapshot Configuration
+
+### Snapshot Intervals
+
+#### `--snapshot-interval-slots`
+
+Slots between incremental snapshots.
+
+```bash
+--snapshot-interval-slots 500
+```
+
+#### `--full-snapshot-interval-slots`
+
+Slots between full snapshots.
+
+```bash
+--full-snapshot-interval-slots 25000
+```
+
+### Snapshot Retention
+
+#### `--maximum-full-snapshots-to-retain`
+
+Number of full snapshots to keep.
+
+```bash
+--maximum-full-snapshots-to-retain 5
+```
+
+#### `--maximum-incremental-snapshots-to-retain`
+
+Number of incremental snapshots to keep.
+
+```bash
+--maximum-incremental-snapshots-to-retain 10
+```
+
+### Snapshot Archives
+
+#### `--full-snapshot-archive-path`
+
+Directory for full snapshot archives.
+
+```bash
+--full-snapshot-archive-path ~/snapshots/full
+```
+
+#### `--incremental-snapshot-archive-path`
+
+Directory for incremental snapshot archives.
+
+```bash
+--incremental-snapshot-archive-path ~/snapshots/incremental
+```
+
+#### `--snapshot-archive-format`
+
+Compression format for snapshots.
+
+```bash
+--snapshot-archive-format zstd
+```
+
+Options: `bz2`, `gzip`, `zstd`, `lz4`, `tar`, `none`
+
+#### `--snapshot-version`
+
+Snapshot version format.
+
+```bash
+--snapshot-version 1.16.0
+```
+
+### Snapshot Behavior
+
+#### `--no-snapshots`
+
+Disable all snapshot generation.
+
+```bash
+--no-snapshots
+```
+
+#### `--maximum-local-snapshot-age`
+
+Reuse local snapshot if less than this many slots behind.
+
+```bash
+--maximum-local-snapshot-age 1000
+```
+
+#### `--minimal-snapshot-download-speed`
+
+Minimum download speed (bytes/second) before retrying.
+
+```bash
+--minimal-snapshot-download-speed 10485760
+```
+
+## Performance Tuning
+
+### Accounts Database
+
+#### `--accounts-db-cache-limit-mb`
+
+Write cache size for accounts database (MB).
+
+```bash
+--accounts-db-cache-limit-mb 10000
+```
+
+#### `--accounts-index-bins`
+
+Number of bins for accounts index (must be power of 2).
+
+```bash
+--accounts-index-bins 8192
+```
+
+#### `--enable-accounts-disk-index`
+
+Enable disk-based accounts index to reduce memory usage.
+
+```bash
+--enable-accounts-disk-index
+```
+
+#### `--accounts-index-path`
+
+Path for disk-based accounts index. Requires `--enable-accounts-disk-index`.
+
+```bash
+--accounts-index-path /mnt/nvme3/accounts-index
+```
+
+#### `--accounts-shrink-ratio`
+
+Ratio threshold for accounts shrinking (0.0-1.0).
+
+```bash
+--accounts-shrink-ratio 0.80
+```
+
+### Ledger Limits
+
+#### `--limit-ledger-size`
+
+Maximum ledger shreds to retain.
+
+```bash
+--limit-ledger-size 50000000
+```
+
+<Tip>
+This is crucial for managing disk space. Recommended: 50-250 million shreds depending on disk size.
+</Tip>
+
+### RocksDB Configuration
+
+#### `--rocksdb-shred-compaction`
+
+RocksDB compaction style for shreds.
+
+```bash
+--rocksdb-shred-compaction level
+```
+
+#### `--rocksdb-ledger-compression`
+
+Compression for transaction status data.
+
+```bash
+--rocksdb-ledger-compression lz4
+```
+
+Options: `none`, `lz4`, `snappy`, `zlib`
+
+### TPU/QUIC Configuration
+
+#### `--tpu-connection-pool-size`
+
+TPU connection pool size per remote address.
+
+```bash
+--tpu-connection-pool-size 4
+```
+
+#### `--num-quic-endpoints`
+
+Number of QUIC endpoints for TPU.
+
+```bash
+--num-quic-endpoints 8
+```
+
+<Info>
+Increasing this can improve throughput at the cost of higher CPU usage.
+</Info>
+
+#### `--tpu-max-staked-connections`
+
+Max concurrent connections from staked nodes.
+
+```bash
+--tpu-max-staked-connections 2000
+```
+
+#### `--tpu-max-unstaked-connections`
+
+Max concurrent connections from unstaked nodes.
+
+```bash
+--tpu-max-unstaked-connections 500
+```
+
+### Block Production and Verification
+
+#### `--block-production-method`
+
+Method for block production.
+
+```bash
+--block-production-method central-scheduler
+```
+
+#### `--block-verification-method`
+
+Method for block verification.
+
+```bash
+--block-verification-method unified-scheduler
+```
+
+#### `--unified-scheduler-handler-threads`
+
+Number of handler threads for unified scheduler.
+
+```bash
+--unified-scheduler-handler-threads 4
+```
+
+### Account Indexing
+
+#### `--account-index`
+
+Enable specific account indexes.
+
+```bash
+--account-index program-id \
+--account-index spl-token-owner \
+--account-index spl-token-mint
+```
+
+Options:
+- `program-id`: Index by program owner
+- `spl-token-owner`: Index by SPL token owner
+- `spl-token-mint`: Index by SPL token mint
+
+#### `--account-index-exclude-key`
+
+Exclude specific keys from indexing.
+
+```bash
+--account-index-exclude-key 11111111111111111111111111111111
+```
+
+## Logging
+
+### Log Configuration
+
+#### `--log`
+
+Log file path. Use `-` for stderr.
+
+```bash
+--log ~/validator.log
+```
+
+### Log Filtering
+
+Set log levels using the `RUST_LOG` environment variable:
+
+```bash
+RUST_LOG=solana=info,solana_runtime::message_processor=debug
+```
+
+Or at runtime:
+
+```bash
+agave-validator set-log-filter solana_core=debug
+```
+
+## Advanced Options
+
+### Genesis and Fork Configuration
+
+#### `--expected-genesis-hash`
+
+Require specific genesis hash.
+
+```bash
+--expected-genesis-hash 5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d
+```
+
+#### `--expected-shred-version`
+
+Require specific shred version.
+
+```bash
+--expected-shred-version 54321
+```
+
+#### `--wait-for-supermajority`
+
+Wait for supermajority before starting PoH (coordinated restarts).
+
+```bash
+--wait-for-supermajority 123456789 \
+--expected-bank-hash ABC123... \
+--expected-shred-version 54321
+```
+
+#### `--hard-fork`
+
+Specify hard fork slots.
+
+```bash
+--hard-fork 12345678
+```
+
+### Voting Configuration
+
+#### `--no-voting`
+
+Disable voting (run as RPC node).
+
+```bash
+--no-voting
+```
+
+#### `--vote-use-quic`
+
+Use QUIC for sending votes.
+
+```bash
+--vote-use-quic true
+```
+
+### Repair Configuration
+
+#### `--repair-validator`
+
+Limit repair requests to specific validators.
+
+```bash
+--repair-validator 7Np41oeYqPefeNQEHSv1UDhYrehxin3NStELsSKCT4K2
+```
+
+#### `--gossip-validator`
+
+Limit gossip to specific validators.
+
+```bash
+--gossip-validator 7Np41oeYqPefeNQEHSv1UDhYrehxin3NStELsSKCT4K2
+```
+
+### Miscellaneous
+
+#### `--init-complete-file`
+
+Create file when validator initialization completes.
+
+```bash
+--init-complete-file ~/validator-init-complete
+```
+
+#### `--skip-startup-ledger-verification`
+
+Skip ledger verification at startup (faster but risky).
+
+```bash
+--skip-startup-ledger-verification
+```
+
+#### `--require-tower`
+
+Refuse to start without saved tower state.
+
+```bash
+--require-tower
+```
+
+## Harmonic-Specific Configuration
+
+### Block Engine
+
+#### `--block-engine-url`
+
+Connect to a block engine for optimized block production.
+
+```bash
+--block-engine-url https://block-engine.example.com:443
+```
+
+### Relayer
+
+#### `--relayer-url`
+
+Connect to a relayer service.
+
+```bash
+--relayer-url https://relayer.example.com:443
+```
+
+## Geyser Plugins
+
+### Plugin Configuration
+
+#### `--geyser-plugin-config`
+
+Load Geyser plugin configuration. Can be specified multiple times.
+
+```bash
+--geyser-plugin-config ~/plugin-config-1.json \
+--geyser-plugin-config ~/plugin-config-2.json
+```
+
+#### `--geyser-plugin-always-enabled`
+
+Enable Geyser interface even without plugin configs.
+
+```bash
+--geyser-plugin-always-enabled
+```
+
+## Configuration File Format
+
+You can use a configuration file instead of command-line arguments:
+
+```bash
+# validator.conf
+identity=/home/sol/validator-keypair.json
+vote-account=/home/sol/vote-account-keypair.json
+ledger=/home/sol/validator-ledger
+accounts=/mnt/nvme0/accounts
+accounts=/mnt/nvme1/accounts
+
+entrypoint=entrypoint.mainnet-beta.solana.com:8001
+entrypoint=entrypoint2.mainnet-beta.solana.com:8001
+
+known-validator=7Np41oeYqPefeNQEHSv1UDhYrehxin3NStELsSKCT4K2
+known-validator=GdnSyH3YtwcxFvQrVVJMm1JhTS4QVX7MFsX56uJLUfiZ
+
+rpc-port=8899
+private-rpc
+
+limit-ledger-size=50000000
+snapshot-interval-slots=500
+full-snapshot-interval-slots=25000
+maximum-full-snapshots-to-retain=5
+
+log=/home/sol/validator.log
+```
+
+Load the configuration:
+
+```bash
+agave-validator --config ~/validator.conf
+```
+
+## Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Separate Drives" icon="hard-drive">
+    Use separate NVMe drives for ledger, accounts, and snapshots for optimal I/O performance.
+  </Card>
+  <Card title="Limit Ledger Size" icon="database">
+    Always set `--limit-ledger-size` to prevent disk exhaustion.
+  </Card>
+  <Card title="Enable Snapshots" icon="camera">
+    Generate snapshots regularly to enable faster recovery and help the network.
+  </Card>
+  <Card title="Monitor Resources" icon="gauge">
+    Use appropriate limits for QUIC connections based on your hardware capacity.
+  </Card>
+</CardGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Operations" icon="play" href="/validator/operations">
+    Learn about day-to-day operations
+  </Card>
+  <Card title="Monitoring" icon="chart-line" href="/validator/monitoring">
+    Set up comprehensive monitoring
+  </Card>
+  <Card title="Troubleshooting" icon="wrench" href="/validator/troubleshooting">
+    Troubleshoot configuration issues
+  </Card>
+</CardGroup>

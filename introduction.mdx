@@ -1,0 +1,83 @@
+---
+title: Introduction
+description: Learn about Harmonic Salsa, a high-performance Solana validator fork
+---
+
+# What is Harmonic Salsa
+
+Harmonic Salsa is Harmonic's fork of the Solana validator, built on top of Jito's fork. It provides a high-performance blockchain validator implementation designed for running Solana network nodes.
+
+This validator client is based on Agave (formerly known as Solana Labs validator), incorporating enhancements from both Jito and Harmonic to optimize validator operations.
+
+## Key Features
+
+<CardGroup cols={2}>
+  <Card title="Production-Ready Validator" icon="server">
+    Run mainnet and testnet validators with battle-tested code from the Solana ecosystem.
+  </Card>
+  
+  <Card title="Full Solana Compatibility" icon="network-wired">
+    Complete compatibility with Solana's consensus mechanism, runtime, and network protocols.
+  </Card>
+  
+  <Card title="Comprehensive CLI Tools" icon="terminal">
+    Rich set of command-line tools for wallet management, cluster queries, and program deployment.
+  </Card>
+  
+  <Card title="SVM Integration" icon="microchip">
+    Build on the Solana Virtual Machine (SVM) with access to runtime components and APIs.
+  </Card>
+</CardGroup>
+
+## What You Can Do
+
+### Run Validators
+
+Deploy and operate Solana validators on:
+- **Mainnet**: Participate in the production Solana network
+- **Testnet/Devnet**: Test and develop on public development clusters
+- **Local**: Run a local test validator for development
+
+### Use CLI Tools
+
+Access a full suite of command-line tools included in the validator software:
+- Wallet and keypair management
+- Cluster and account queries
+- Stake account operations
+- Program deployment and management
+- Test validator operations
+
+### Build on SVM
+
+Leverage the Solana Virtual Machine (SVM) components:
+- **Runtime**: Execute Solana programs and transactions
+- **Accounts Database**: Manage blockchain state efficiently
+- **Core Libraries**: Access fundamental blockchain primitives
+- **RPC Interface**: Query blockchain data and submit transactions
+
+## Architecture Overview
+
+Harmonic Salsa includes numerous specialized components:
+
+- **Core Runtime**: Transaction processing, program execution, and state management
+- **Consensus**: Proof of History (PoH) and Tower BFT consensus mechanisms
+- **Networking**: Gossip protocol, turbine block propagation, and QUIC-based TPU
+- **Storage**: Accounts database, ledger management, and snapshots
+- **RPC Services**: JSON-RPC API server for client interactions
+- **Developer Tools**: Test validator, program test framework, and benchmarking tools
+
+## Version Information
+
+Harmonic Salsa is currently based on version **3.1.9** of the Agave validator, maintaining compatibility with the broader Solana ecosystem while incorporating performance and operational improvements.
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Quick Start" icon="rocket" href="/quickstart">
+    Get up and running with Harmonic Salsa in minutes
+  </Card>
+  
+  <Card title="Installation" icon="download" href="/installation">
+    Detailed installation instructions for all platforms
+  </Card>
+</CardGroup>

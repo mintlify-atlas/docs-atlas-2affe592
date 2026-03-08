@@ -1,0 +1,226 @@
+---
+title: 'SVM Library API'
+description: 'Solana Virtual Machine for transaction and message processing'
+---
+
+## Overview
+
+The SVM (Solana Virtual Machine) library provides low-level transaction processing functionality. It handles transaction loading, execution, and commitment without depending on the Bank abstraction, making it suitable for alternative blockchain implementations.
+
+## TransactionBatchProcessor
+
+The `TransactionBatchProcessor<FG: ForkGraph>` is the main processor for executing batches of transactions.
+
+### Structure
+
+```rust
+pub struct TransactionBatchProcessor<FG: ForkGraph> {
+    slot: Slot,
+    epoch: Epoch,
+    sysvar_cache: RwLock<SysvarCache>,
+    pub epoch_boundary_preparation: Arc<RwLock<EpochBoundaryPreparation>>,
+    pub global_program_cache: Arc<RwLock<ProgramCache<FG>>>,
+    pub environments: ProgramRuntimeEnvironments,
+    pub builtin_program_ids: RwLock<HashSet<Pubkey>>,
+}
+```
+
+### Constructor Methods
+
+<ParamField path="new_uninitialized" type="fn(slot: Slot, epoch: Epoch) -> Self">
+  Create a new, uninitialized `TransactionBatchProcessor` with an empty program cache.
+  
+  **Parameters:**
+  - `slot`: The slot number for this processor
+  - `epoch`: The epoch number for this processor
+  
+  **Returns:**
+  - `Self`: A new processor instance
+  
+  **Note:** After calling this, you should call `set_fork_graph_in_program_cache` and `add_builtin` to properly configure the processor.
+</ParamField>
+
+<ParamField path="new_from" type="fn(&self, slot: Slot, epoch: Epoch) -> Self">
+  Create a new processor from an existing one, inheriting the program cache and builtin program IDs but resetting the sysvar cache.
+  
+  **Parameters:**
+  - `slot`: The slot number for the new processor
+  - `epoch`: The epoch number for the new processor
+  
+  **Returns:**
+  - `Self`: A new processor instance
+</ParamField>
+
+### Core Processing Method
+
+<ParamField path="load_and_execute_sanitized_transactions" type="fn<CB: TransactionProcessingCallback>(&self, callbacks: &CB, sanitized_txs: &[SanitizedTransaction], check_results: Vec<TransactionCheckResult>, environment: &TransactionProcessingEnvironment, config: &TransactionProcessingConfig) -> LoadAndExecuteSanitizedTransactionsOutput">
+  Load and execute a batch of sanitized transactions.
+  
+  **Parameters:**
+  - `callbacks`: Transaction processing callbacks for account loading and state management
+  - `sanitized_txs`: Slice of sanitized transactions to execute
+  - `check_results`: Pre-computed check results for each transaction
+  - `environment`: Runtime environment configuration
+  - `config`: Transaction processing configuration
+  
+  **Returns:**
+  - `LoadAndExecuteSanitizedTransactionsOutput`: Contains processing results, error metrics, timings, and balance information
+</ParamField>
+
+## TransactionProcessingEnvironment
+
+Configuration for the runtime environment used during transaction processing.
+
+```rust
+pub struct TransactionProcessingEnvironment {
+    pub blockhash: Hash,
+    pub blockhash_lamports_per_signature: u64,
+    pub epoch_total_stake: u64,
+    pub feature_set: SVMFeatureSet,
+    pub program_runtime_environments_for_execution: ProgramRuntimeEnvironments,
+    pub program_runtime_environments_for_deployment: ProgramRuntimeEnvironments,
+    pub rent: Rent,
+}
+```
+
+## TransactionProcessingConfig
+
+Configuration options for processing transactions.
+
+```rust
+pub struct TransactionProcessingConfig<'a> {
+    pub account_overrides: Option<&'a AccountOverrides>,
+    pub check_program_modification_slot: bool,
+    pub log_messages_bytes_limit: Option<usize>,
+    pub limit_to_load_programs: bool,
+    pub recording_config: ExecutionRecordingConfig,
+}
+```
+
+## ExecutionRecordingConfig
+
+Controls what data is recorded during transaction execution.
+
+```rust
+pub struct ExecutionRecordingConfig {
+    pub enable_cpi_recording: bool,
+    pub enable_log_recording: bool,
+    pub enable_return_data_recording: bool,
+    pub enable_transaction_balance_recording: bool,
+}
+```
+
+## LoadAndExecuteSanitizedTransactionsOutput
+
+The output from batch transaction processing.
+
+```rust
+pub struct LoadAndExecuteSanitizedTransactionsOutput {
+    pub error_metrics: TransactionErrorMetrics,
+    pub execute_timings: ExecuteTimings,
+    pub processing_results: Vec<TransactionProcessingResult>,
+    pub balance_collector: Option<BalanceCollector>,
+}
+```
+
+## MessageProcessor
+
+The message processor handles individual instruction execution.
+
+### Core Function
+
+<ParamField path="process_message" type="fn<'ix_data>(message: &'ix_data impl SVMMessage, program_indices: &[IndexOfAccount], invoke_context: &mut InvokeContext, execute_timings: &mut ExecuteTimings, accumulated_consumed_units: &mut u64) -> Result<(), TransactionError>">
+  Process a message by executing each instruction in sequence.
+  
+  **Parameters:**
+  - `message`: The message to process (implements SVMMessage trait)
+  - `program_indices`: Indices of program accounts for each instruction
+  - `invoke_context`: Mutable invoke context for execution
+  - `execute_timings`: Mutable timing measurements
+  - `accumulated_consumed_units`: Mutable counter for compute units consumed
+  
+  **Returns:**
+  - `Result<(), TransactionError>`: Ok if all instructions succeed, error otherwise
+</ParamField>
+
+## Key Traits
+
+### TransactionProcessingCallback
+
+Callback interface for account loading and state management during transaction processing.
+
+**Required Methods:**
+- `get_account_shared_data`: Load account data
+- `add_builtin_account`: Add a builtin program account
+- Account state tracking and management
+
+### SVMMessage
+
+Trait for transaction messages that can be processed by the SVM.
+
+**Required Methods:**
+- `num_instructions`: Get the number of instructions
+- `instructions_iter`: Iterate over instructions
+- `program_instructions_iter`: Iterate over program instructions
+- `account_keys`: Get account keys referenced in the message
+
+## Example Usage
+
+```rust
+use solana_svm::transaction_processor::{
+    TransactionBatchProcessor,
+    TransactionProcessingEnvironment,
+    TransactionProcessingConfig,
+    ExecutionRecordingConfig,
+};
+
+// Create a processor
+let processor = TransactionBatchProcessor::new_uninitialized(slot, epoch);
+
+// Configure processing environment
+let environment = TransactionProcessingEnvironment {
+    blockhash: recent_blockhash,
+    blockhash_lamports_per_signature: lamports_per_signature,
+    epoch_total_stake: total_stake,
+    feature_set: feature_set,
+    program_runtime_environments_for_execution: runtime_envs.clone(),
+    program_runtime_environments_for_deployment: runtime_envs,
+    rent: rent_collector.rent,
+};
+
+// Configure processing options
+let config = TransactionProcessingConfig {
+    account_overrides: None,
+    check_program_modification_slot: true,
+    log_messages_bytes_limit: Some(100_000),
+    limit_to_load_programs: false,
+    recording_config: ExecutionRecordingConfig::new_single_setting(true),
+};
+
+// Process transactions
+let output = processor.load_and_execute_sanitized_transactions(
+    &callbacks,
+    &sanitized_transactions,
+    check_results,
+    &environment,
+    &config,
+);
+
+// Handle results
+for (tx, result) in sanitized_transactions.iter().zip(output.processing_results) {
+    match result {
+        TransactionProcessingResult::Processed(details) => {
+            println!("Transaction processed: {:?}", details);
+        }
+        TransactionProcessingResult::Failed(error) => {
+            println!("Transaction failed: {:?}", error);
+        }
+    }
+}
+```
+
+## See Also
+
+- [Runtime API](/api/runtime) - High-level Bank interface
+- [Accounts DB API](/api/accounts-db) - Account storage
+- [Program Runtime](https://docs.rs/solana-program-runtime/) - Program execution environment

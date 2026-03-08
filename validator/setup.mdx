@@ -1,0 +1,292 @@
+---
+title: Validator Setup
+description: Complete guide to setting up a Harmonic Salsa validator
+---
+
+# Validator Setup
+
+This guide walks you through setting up a Harmonic Salsa validator from scratch.
+
+## Prerequisites
+
+Before you begin, ensure you have:
+
+- A server meeting the [hardware requirements](/validator/overview#validator-requirements)
+- Ubuntu 20.04 LTS or later (or equivalent Linux distribution)
+- Root or sudo access
+- Stable internet connection
+
+## Install Dependencies
+
+First, install the required system dependencies:
+
+```bash Ubuntu
+sudo apt-get update
+sudo apt-get install libssl-dev libudev-dev pkg-config zlib1g-dev llvm clang cmake make libprotobuf-dev protobuf-compiler libclang-dev
+```
+
+```bash Fedora
+sudo dnf install openssl-devel systemd-devel pkg-config zlib-devel llvm clang cmake make protobuf-devel protobuf-compiler perl-core libclang-dev
+```
+
+## Install Rust
+
+Install the Rust toolchain:
+
+```bash
+curl https://sh.rustup.rs -sSf | sh
+source $HOME/.cargo/env
+rustup component add rustfmt
+```
+
+The Harmonic Salsa repository includes a `rust-toolchain.toml` file that automatically selects the correct Rust version.
+
+## Build from Source
+
+Clone and build the Harmonic Salsa validator:
+
+```bash
+git clone https://github.com/harmonic/salsa.git
+cd salsa
+./cargo build --release
+```
+
+<Warning>
+The debug build (`./cargo build`) is **not suitable** for running a testnet or mainnet validator. Always use `--release` for production.
+</Warning>
+
+After building, the binaries will be located in `target/release/`:
+
+- `agave-validator`: The main validator binary
+- `solana`: CLI tool for interacting with the network
+- `solana-keygen`: Key generation utility
+
+## Generate Validator Identity
+
+<Steps>
+  <Step title="Generate identity keypair">
+    Create a new keypair that will serve as your validator's identity:
+
+    ```bash
+    solana-keygen new -o ~/validator-keypair.json
+    ```
+
+    <Warning>
+    Store this keypair securely. Anyone with access to this file can control your validator.
+    </Warning>
+
+    View your validator identity:
+
+    ```bash
+    solana-keygen pubkey ~/validator-keypair.json
+    ```
+  </Step>
+
+  <Step title="Generate vote account keypair">
+    Create a keypair for your vote account:
+
+    ```bash
+    solana-keygen new -o ~/vote-account-keypair.json
+    ```
+
+    The vote account tracks your validator's voting history and accumulated credits.
+  </Step>
+
+  <Step title="Generate authorized withdrawer keypair">
+    Create a keypair for withdrawing from your vote account:
+
+    ```bash
+    solana-keygen new -o ~/authorized-withdrawer-keypair.json
+    ```
+
+    <Info>
+    Keep this keypair in cold storage. It's only needed for withdrawing rewards.
+    </Info>
+  </Step>
+
+  <Step title="Fund your validator identity">
+    Your validator identity needs SOL to:
+    - Create the vote account (rent-exempt minimum)
+    - Pay transaction fees
+
+    For testnet:
+    ```bash
+    solana config set --url https://api.testnet.solana.com
+    solana airdrop 1 ~/validator-keypair.json
+    ```
+
+    For mainnet, you'll need to fund the account from an exchange or wallet.
+  </Step>
+
+  <Step title="Create the vote account">
+    Create your validator's vote account:
+
+    ```bash
+    solana create-vote-account \
+      ~/vote-account-keypair.json \
+      ~/validator-keypair.json \
+      ~/authorized-withdrawer-keypair.json \
+      --commission 10
+    ```
+
+    This command:
+    - Creates a new vote account using `vote-account-keypair.json`
+    - Associates it with your validator identity
+    - Sets the withdrawer to `authorized-withdrawer-keypair.json`
+    - Sets commission to 10% (adjust as needed)
+
+    Verify the vote account was created:
+
+    ```bash
+    solana vote-account $(solana-keygen pubkey ~/vote-account-keypair.json)
+    ```
+  </Step>
+
+  <Step title="Create ledger directory">
+    Create a directory for the ledger data:
+
+    ```bash
+    mkdir -p ~/validator-ledger
+    ```
+
+    <Info>
+    For best performance, use a dedicated NVMe SSD for the ledger.
+    </Info>
+  </Step>
+
+  <Step title="Start the validator">
+    Start your validator with basic configuration:
+
+    ```bash
+    agave-validator \
+      --identity ~/validator-keypair.json \
+      --vote-account ~/vote-account-keypair.json \
+      --ledger ~/validator-ledger \
+      --entrypoint entrypoint.mainnet-beta.solana.com:8001 \
+      --entrypoint entrypoint2.mainnet-beta.solana.com:8001 \
+      --entrypoint entrypoint3.mainnet-beta.solana.com:8001 \
+      --entrypoint entrypoint4.mainnet-beta.solana.com:8001 \
+      --entrypoint entrypoint5.mainnet-beta.solana.com:8001 \
+      --known-validator 7Np41oeYqPefeNQEHSv1UDhYrehxin3NStELsSKCT4K2 \
+      --known-validator GdnSyH3YtwcxFvQrVVJMm1JhTS4QVX7MFsX56uJLUfiZ \
+      --known-validator DE1bawNcRJB9rVm3buyMVfr8mBEoyyu73NBovf2oXJsJ \
+      --known-validator CakcnaRDHka2gXyfbEd2d3xsvkJkqsLw2akB3zsN1D2S \
+      --only-known-rpc \
+      --log ~/validator.log \
+      --rpc-port 8899 \
+      --dynamic-port-range 8000-8020 \
+      --limit-ledger-size 50000000
+    ```
+
+    <Tip>
+    For testnet, replace the entrypoints with:
+    ```
+    --entrypoint entrypoint.testnet.solana.com:8001
+    --entrypoint entrypoint2.testnet.solana.com:8001
+    --entrypoint entrypoint3.testnet.solana.com:8001
+    ```
+    </Tip>
+  </Step>
+
+  <Step title="Verify validator is running">
+    Check that your validator is running:
+
+    ```bash
+    solana gossip | grep $(solana-keygen pubkey ~/validator-keypair.json)
+    ```
+
+    Monitor catchup status:
+
+    ```bash
+    solana catchup ~/validator-keypair.json
+    ```
+
+    View your validator's vote account:
+
+    ```bash
+    solana vote-account $(solana-keygen pubkey ~/vote-account-keypair.json)
+    ```
+  </Step>
+</Steps>
+
+## Configuration File (Optional)
+
+For easier management, you can create a configuration file instead of using command-line arguments.
+
+Create `~/validator.conf`:
+
+```bash
+identity=/home/sol/validator-keypair.json
+vote-account=/home/sol/vote-account-keypair.json
+ledger=/home/sol/validator-ledger
+entrypoint=entrypoint.mainnet-beta.solana.com:8001
+entrypoint=entrypoint2.mainnet-beta.solana.com:8001
+known-validator=7Np41oeYqPefeNQEHSv1UDhYrehxin3NStELsSKCT4K2
+only-known-rpc
+rpc-port=8899
+log=/home/sol/validator.log
+limit-ledger-size=50000000
+```
+
+Then start the validator:
+
+```bash
+agave-validator --config ~/validator.conf
+```
+
+## Running as a System Service
+
+Create a systemd service file at `/etc/systemd/system/agave-validator.service`:
+
+```ini
+[Unit]
+Description=Agave Validator
+After=network.target
+Wants=systuner.service
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+Restart=always
+RestartSec=1
+User=sol
+LimitNOFILE=1000000
+LogRateLimitIntervalSec=0
+Environment="PATH=/home/sol/.local/share/solana/install/active_release/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+ExecStart=/home/sol/.local/share/solana/install/active_release/bin/agave-validator --config /home/sol/validator.conf
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Enable and start the service:
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable agave-validator
+sudo systemctl start agave-validator
+```
+
+Check service status:
+
+```bash
+sudo systemctl status agave-validator
+sudo journalctl -u agave-validator -f
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Operations" icon="play" href="/validator/operations">
+    Learn about day-to-day validator operations
+  </Card>
+  <Card title="Configuration" icon="sliders" href="/validator/configuration">
+    Explore advanced configuration options
+  </Card>
+  <Card title="Monitoring" icon="chart-line" href="/validator/monitoring">
+    Set up monitoring for your validator
+  </Card>
+  <Card title="Troubleshooting" icon="wrench" href="/validator/troubleshooting">
+    Common issues and solutions
+  </Card>
+</CardGroup>

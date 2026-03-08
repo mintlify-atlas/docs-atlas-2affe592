@@ -1,0 +1,329 @@
+---
+title: Solana Virtual Machine (SVM)
+description: Transaction execution and program processing in Harmonic Salsa
+---
+
+The Solana Virtual Machine (SVM) is the transaction execution engine at the heart of Harmonic Salsa. It loads accounts, executes programs, and validates transaction results.
+
+## Architecture Overview
+
+The SVM is organized into several key modules (~/workspace/source/svm/src/lib.rs:1):
+
+```rust
+pub mod account_loader;
+pub mod account_overrides;
+pub mod message_processor;
+pub mod nonce_info;
+pub mod program_loader;
+pub mod transaction_processor;
+```
+
+## Transaction Processor
+
+The TransactionBatchProcessor (~/workspace/source/svm/src/transaction_processor.rs:160) is the main entry point:
+
+```rust
+pub struct TransactionBatchProcessor<FG: ForkGraph> {
+    /// Bank slot (i.e. block)
+    slot: Slot,
+    
+    /// Bank epoch
+    epoch: Epoch,
+    
+    /// SysvarCache - system variables accessible from programs
+    sysvar_cache: RwLock<SysvarCache>,
+    
+    /// Programs required for transaction batch processing
+    global_program_cache: Arc<RwLock<ProgramCache<FG>>>,
+    
+    /// Builtin program ids
+    builtin_program_ids: RwLock<HashSet<Pubkey>>,
+}
+```
+
+### Key Responsibilities
+
+- Load and validate transactions
+- Execute program instructions
+- Manage program cache
+- Track execution costs
+- Collect execution logs
+
+## Transaction Processing Flow
+
+### 1. Load Phase
+
+The account loader (~/workspace/source/svm/src/account_loader.rs:161) loads all required accounts:
+
+```rust
+pub(crate) struct AccountLoader<'a, CB: TransactionProcessingCallback> {
+    loaded_accounts: AHashMap<Pubkey, AccountSharedData>,
+    callbacks: &'a CB,
+    feature_set: &'a SVMFeatureSet,
+}
+```
+
+#### Account Loading Steps
+
+1. **Fee Payer Validation** - Verify fee payer has sufficient balance
+2. **Nonce Account Loading** - Load nonce account if present
+3. **Transaction Account Loading** - Load all accounts referenced in transaction
+4. **Program Account Loading** - Load program accounts and their data
+5. **Rent Validation** - Check rent-exempt status
+
+### 2. Execution Phase
+
+The message processor (~/workspace/source/svm/src/message_processor.rs:15) executes instructions:
+
+```rust
+pub(crate) fn process_message<'ix_data>(
+    message: &'ix_data impl SVMMessage,
+    program_indices: &[IndexOfAccount],
+    invoke_context: &mut InvokeContext<'_, 'ix_data>,
+    execute_timings: &mut ExecuteTimings,
+    accumulated_consumed_units: &mut u64,
+) -> Result<(), TransactionError>
+```
+
+#### Execution Steps
+
+1. **Prepare Instruction** - Set up instruction context
+2. **Load Program** - Get program from cache or load from account
+3. **Execute Instruction** - Call program entrypoint
+4. **Track Compute Units** - Monitor resource usage
+5. **Validate Result** - Check account mutations are valid
+
+### 3. Commit Phase
+
+After execution completes:
+
+1. **Validate Changes** - Ensure account rules followed
+2. **Collect Rent** - Apply rent to modified accounts
+3. **Update State** - Write changes back to AccountsDb
+4. **Record Logs** - Save execution logs if enabled
+
+## Account Loader
+
+The account loader manages loading accounts for transactions.
+
+### Loading Strategy
+
+```rust
+// Referenced at: ~/workspace/source/svm/src/account_loader.rs:168
+// create a new AccountLoader for the transaction batch
+pub(crate) fn new_with_loaded_accounts_capacity(
+    account_overrides: Option<&'a AccountOverrides>,
+    callbacks: &'a CB,
+    feature_set: &'a SVMFeatureSet,
+    capacity: usize,
+) -> AccountLoader<'a, CB>
+```
+
+Key features:
+
+- **Batch Loading** - Load multiple accounts efficiently
+- **Account Cache** - Cache accounts within batch
+- **Override Support** - Allow simulated account states
+- **Rent Calculation** - Compute rent for each account
+
+### Transaction Account State
+
+Accounts tracked through execution:
+
+```rust
+pub struct LoadedTransaction {
+    pub accounts: Vec<KeyedAccountSharedData>,
+    pub(crate) program_indices: Vec<IndexOfAccount>,
+    pub fee_details: FeeDetails,
+    pub rollback_accounts: RollbackAccounts,
+    pub(crate) compute_budget: SVMTransactionExecutionBudget,
+    pub loaded_accounts_data_size: u32,
+}
+```
+
+## Program Execution Model
+
+### Program Cache
+
+The SVM maintains a cache of loaded programs:
+
+- **Global Cache** - Shared across all transactions
+- **Batch Cache** - Transaction batch specific
+- **LRU Eviction** - Remove least-recently used programs
+- **Recompilation** - Handle program upgrades
+
+### Invoke Context
+
+The InvokeContext provides programs with:
+
+- **Account Access** - Read/write account data
+- **System Variables** - Clock, rent, epoch schedule
+- **Cross-Program Invocation** - Call other programs
+- **Compute Budget** - Track resource usage
+- **Return Data** - Pass data back to caller
+
+### Execution Environment
+
+Programs execute in isolated environment:
+
+```rust
+pub struct TransactionProcessingEnvironment {
+    /// The blockhash to use for the transaction batch
+    pub blockhash: Hash,
+    
+    /// Lamports per signature for this blockhash
+    pub blockhash_lamports_per_signature: u64,
+    
+    /// Total stake for the current epoch
+    pub epoch_total_stake: u64,
+    
+    /// Runtime feature set
+    pub feature_set: SVMFeatureSet,
+    
+    /// Program runtime environments
+    pub program_runtime_environments_for_execution: ProgramRuntimeEnvironments,
+    
+    /// Rent calculator
+    pub rent: Rent,
+}
+```
+
+## Transaction Processing
+
+### Processing Configuration
+
+```rust
+pub struct TransactionProcessingConfig<'a> {
+    /// Overridden accounts for simulation
+    pub account_overrides: Option<&'a AccountOverrides>,
+    
+    /// Check program modification slot
+    pub check_program_modification_slot: bool,
+    
+    /// Log messages byte limit
+    pub log_messages_bytes_limit: Option<usize>,
+    
+    /// Limit programs loaded per batch
+    pub limit_to_load_programs: bool,
+    
+    /// Recording capabilities
+    pub recording_config: ExecutionRecordingConfig,
+}
+```
+
+### Recording Configuration
+
+Controls what data is captured during execution:
+
+```rust
+pub struct ExecutionRecordingConfig {
+    pub enable_cpi_recording: bool,
+    pub enable_log_recording: bool,
+    pub enable_return_data_recording: bool,
+    pub enable_transaction_balance_recording: bool,
+}
+```
+
+## Program Loader
+
+The program loader (~/workspace/source/svm/src/program_loader.rs) handles:
+
+- **Program Discovery** - Find program for given account
+- **Program Validation** - Verify program is executable
+- **Program Loading** - Load program bytecode
+- **Program Caching** - Cache compiled programs
+
+### Load Process
+
+1. Check if program is builtin
+2. Look up program in cache
+3. If not cached, load from account
+4. Validate program format
+5. Cache for future use
+
+## Compute Budget
+
+The SVM enforces compute limits:
+
+- **Compute Units** - Maximum instructions executed
+- **Account Data Size** - Maximum account data loaded
+- **Call Depth** - Maximum cross-program invocation depth
+- **Log Data Size** - Maximum log output size
+
+### Budget Tracking
+
+```rust
+pub struct SVMTransactionExecutionBudget {
+    // Maximum compute units that can be consumed
+    // Maximum loaded accounts data size
+    // Maximum call depth for CPI
+}
+```
+
+## Rollback Accounts
+
+The SVM tracks original account states for rollback:
+
+```rust
+pub struct RollbackAccounts {
+    // Original account states before transaction
+    // Used to rollback on error
+}
+```
+
+On transaction failure:
+
+1. Restore original account states
+2. Deduct fee from fee payer only
+3. Update nonce if present
+4. Discard all other changes
+
+## Transaction Results
+
+Execution produces detailed results:
+
+```rust
+pub struct TransactionExecutionDetails {
+    // Execution status
+    // Compute units consumed
+    // Log messages
+    // Return data
+    // Account changes
+}
+```
+
+## Error Handling
+
+The SVM provides detailed error information:
+
+- **Instruction Errors** - Which instruction failed
+- **Custom Errors** - Program-specific error codes
+- **Account Errors** - Invalid account state
+- **Compute Budget Exceeded** - Resource limits hit
+
+## Performance Features
+
+### Program Cache
+
+- Avoids reloading programs
+- Reduces disk I/O
+- Enables hot-path optimization
+
+### Parallel Execution
+
+- Non-conflicting transactions execute concurrently
+- Read-only accounts allow parallelism
+- Optimistic locking strategy
+
+### Account Batching
+
+- Load multiple accounts together
+- Reduce database roundtrips
+- Better cache utilization
+
+## Key Files
+
+- **Transaction Processor**: ~/workspace/source/svm/src/transaction_processor.rs
+- **Account Loader**: ~/workspace/source/svm/src/account_loader.rs
+- **Message Processor**: ~/workspace/source/svm/src/message_processor.rs
+- **Program Loader**: ~/workspace/source/svm/src/program_loader.rs

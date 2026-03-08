@@ -1,0 +1,456 @@
+---
+title: Accounts Database
+description: Storage architecture and account indexing in Harmonic Salsa
+---
+
+The Accounts Database is the persistent storage layer for all account data in Harmonic Salsa. It provides high-performance storage, indexing, and snapshot capabilities.
+
+## Overview
+
+From ~/workspace/source/accounts-db/src/accounts_db.rs:1:
+
+```rust
+/// Persistent accounts are stored at this path location:
+///  `<path>/<pid>/data/`
+///
+/// The persistent store would allow for this mode of operation:
+///  - Concurrent single thread append with many concurrent readers.
+///
+/// The underlying memory is memory mapped to a file.
+```
+
+## Architecture Components
+
+The accounts database consists of several key components:
+
+### Core Structures
+
+```rust
+pub mod account_info;
+pub mod account_storage;
+pub mod accounts_db;
+pub mod accounts_file;
+pub mod accounts_hash;
+pub mod accounts_index;
+pub mod accounts_cache;
+pub mod append_vec;
+```
+
+## Storage Architecture
+
+### Append-Only Storage
+
+Accounts stored in append-only files (AppendVec):
+
+- Memory-mapped files for fast access
+- Immutable once written
+- Multiple files per slot
+- Accounts never modified in place
+
+### Storage Layout
+
+```
+<data_dir>/
+├── accounts/
+│   ├── 0.0      # Storage file for slot 0
+│   ├── 0.1      # Additional storage for slot 0
+│   ├── 1.0      # Storage file for slot 1
+│   └── ...
+├── snapshots/
+│   ├── 12345/   # Full snapshot at slot 12345
+│   └── 12346/   # Incremental snapshot
+└── accounts_index/
+    └── ...      # Index data
+```
+
+### AppendVec Format
+
+Each AppendVec contains:
+
+```rust
+// Header with metadata
+// Followed by account entries:
+// - Lamports (u64)
+// - Data length (u64)  
+// - Owner (Pubkey)
+// - Executable flag (bool)
+// - Rent epoch (u64)
+// - Account data (bytes)
+// - Padding for alignment
+```
+
+### Storage Recycling
+
+Old storage files recycled when:
+
+1. **Dead Accounts** - No live accounts remain
+2. **Low Occupancy** - Most accounts updated elsewhere
+3. **Ancient Storage** - Very old storage files
+4. **Compaction** - Combined with other storage
+
+## Account Indexing
+
+The accounts index (~/workspace/source/accounts-db/src/accounts_index.rs:1) maps pubkeys to storage locations.
+
+### Index Structure
+
+```rust
+pub struct AccountsIndex<T: IndexValue> {
+    // In-memory index of account locations
+    // Maps: Pubkey -> SlotList<AccountInfo>
+    // SlotList: [(Slot, AccountInfo), ...]
+}
+```
+
+### Account Info
+
+```rust
+pub struct AccountInfo {
+    // Storage ID
+    // Offset within storage
+    // Lamports (cached)
+}
+```
+
+Key properties:
+
+- Multiple slots per pubkey (fork history)
+- Sorted by slot number
+- Most recent slot typically used
+- Ref count for garbage collection
+
+### Index Sharding
+
+Index sharded for parallelism:
+
+```rust
+pub const BINS_DEFAULT: usize = 8192;
+// Shard index across 8192 bins
+// Reduces lock contention
+// Enables parallel operations
+```
+
+### Disk Index
+
+Index can spill to disk:
+
+- **In-Memory** - Hot accounts in RAM
+- **On-Disk** - Cold accounts on disk
+- **LRU Policy** - Keep recently used in memory
+- **Async Loading** - Load from disk as needed
+
+## Account Cache
+
+Recently modified accounts cached in memory:
+
+```rust
+pub struct AccountsCache {
+    // Map of slot -> accounts modified in that slot
+    // Accounts not yet flushed to disk
+    // Write-through cache behavior
+}
+```
+
+### Cache Operations
+
+- **Store** - Write to cache, async flush to disk
+- **Load** - Check cache first, then disk
+- **Flush** - Write cached accounts to AppendVec
+- **Evict** - Remove from cache after flush
+
+### Write Cache
+
+Default cache size (~/workspace/source/accounts-db/src/accounts_db.rs:98):
+
+```rust
+const WRITE_CACHE_LIMIT_BYTES_DEFAULT: u64 = 15_000_000_000;
+// 15 GB write cache
+// Configurable via --accounts-db-cache-limit-mb
+```
+
+## Account Hashing
+
+Accounts hashed for verification:
+
+### Hash Computation
+
+```rust
+// For each account:
+hash = hash(
+    lamports,
+    owner,
+    executable,
+    rent_epoch,
+    data,
+    pubkey
+)
+```
+
+### Lattice Hash (LtHash)
+
+Used for incremental hashing:
+
+- Homomorphic hash function
+- Add/remove accounts without rehashing
+- Efficient for large account sets
+- Used in snapshots
+
+### Accounts Hash
+
+Full accounts hash computed for:
+
+- Snapshot creation
+- Cluster consensus on state
+- State verification
+- Fork comparison
+
+## Snapshot System
+
+### Full Snapshots
+
+Complete state at a slot:
+
+1. **Freeze Bank** - No more modifications
+2. **Hash Accounts** - Compute full hash
+3. **Write Storage** - Copy AppendVec files
+4. **Write Metadata** - Bank state and hash
+5. **Compress Archive** - Create tar.zst file
+
+### Incremental Snapshots
+
+Changes since last full snapshot:
+
+- Only modified accounts
+- Much smaller than full snapshot
+- Faster to create and load
+- Chain with full snapshot
+
+### Snapshot Loading
+
+1. **Download** - Get snapshot from peer or disk
+2. **Decompress** - Extract archive
+3. **Load Accounts** - Mmap storage files
+4. **Build Index** - Scan storage and index
+5. **Verify Hash** - Ensure correctness
+6. **Resume** - Continue from snapshot slot
+
+## Background Services
+
+### Accounts Background Service
+
+Runs cleanup operations:
+
+- **Snapshot Generation** - Create periodic snapshots
+- **Shrink Storage** - Compact underutilized storage
+- **Clean Accounts** - Remove old versions
+- **Purge Slots** - Delete rooted-out forks
+
+### Clean Process
+
+Remove old account versions:
+
+1. **Identify Dead** - Find superseded accounts
+2. **Remove from Index** - Update index
+3. **Mark Storage** - Track dead bytes
+4. **Schedule Shrink** - If occupancy low
+
+### Shrink Process
+
+Compact sparse storage:
+
+1. **Select Candidates** - Find low-occupancy storage
+2. **Read Alive Accounts** - Load still-referenced accounts
+3. **Write New Storage** - Append to new file
+4. **Update Index** - Point to new locations
+5. **Delete Old Storage** - Remove old file
+
+## Ancient Append Vecs
+
+Very old storage files:
+
+- Combined into larger files
+- Reduces file count
+- Improves space efficiency
+- Special handling for durability
+
+## Read-Only Accounts Cache
+
+Cache for read-only accounts:
+
+```rust
+pub struct ReadOnlyAccountsCache {
+    // LRU cache of read-only accounts
+    // Reduces disk I/O for popular programs
+    // Configurable size limit
+}
+```
+
+Benefits:
+
+- Faster program loading
+- Reduced disk contention
+- Better performance for hot programs
+
+## Account Locks
+
+Transactions lock accounts during execution:
+
+```rust
+pub mod account_locks;
+// Validates no read/write conflicts
+// Allows parallel execution of non-conflicting txs
+// Prevents race conditions
+```
+
+### Lock Rules
+
+- **Write Lock** - Exclusive access
+- **Read Lock** - Shared access
+- **Validation** - Before transaction execution
+- **Release** - After batch complete
+
+## Scanning Accounts
+
+### Scan Operations
+
+Iterate over all accounts:
+
+```rust
+pub fn scan_accounts<F>(
+    &self,
+    ancestors: &Ancestors,
+    scan_func: F,
+) where F: Fn(&Pubkey, (&T, Slot))
+```
+
+Use cases:
+
+- Snapshot creation
+- Hash computation
+- Rent collection
+- Account analysis
+
+### Parallel Scanning
+
+Scan in parallel using shards:
+
+```rust
+const SCAN_SLOT_PAR_ITER_THRESHOLD: usize = 4000;
+// Parallel scan if >= 4000 accounts
+```
+
+## Performance Optimizations
+
+### Memory Mapping
+
+- Zero-copy account reads
+- Kernel manages caching
+- Efficient for large datasets
+- OS handles page faults
+
+### Parallel Operations
+
+- Sharded index structure
+- Parallel account scanning
+- Concurrent storage access
+- Lock-free where possible
+
+### Cache Hierarchy
+
+1. **Write Cache** - Recent modifications
+2. **Read Cache** - Popular read-only accounts
+3. **OS Page Cache** - Memory-mapped files
+4. **Disk** - Persistent storage
+
+### Batch Processing
+
+- Flush multiple accounts together
+- Amortize I/O overhead
+- Better disk utilization
+- Reduced write amplification
+
+## Tiered Storage
+
+Optimized storage for different access patterns:
+
+```rust
+pub mod tiered_storage;
+// Hot tier: Frequently accessed
+// Cold tier: Rarely accessed
+// Archive tier: Ancient data
+```
+
+## Configuration
+
+### AccountsDbConfig
+
+```rust
+pub struct AccountsDbConfig {
+    // Number of index bins
+    pub bins: Option<usize>,
+    
+    // Number of flush threads
+    pub num_flush_threads: Option<NonZeroUsize>,
+    
+    // Storage paths
+    pub drives: Option<Vec<PathBuf>>,
+    
+    // Index size limit
+    pub index_limit_mb: IndexLimitMb,
+}
+```
+
+### Testing Config
+
+```rust
+pub const ACCOUNTS_DB_CONFIG_FOR_TESTING: AccountsDbConfig = AccountsDbConfig {
+    bins: Some(BINS_FOR_TESTING),
+    num_flush_threads: Some(FLUSH_THREADS_TESTING),
+    drives: None,
+    index_limit_mb: IndexLimitMb::InMemOnly,
+    // ...
+};
+```
+
+## Error Handling
+
+### Storage Errors
+
+- **Disk Full** - No space for new storage
+- **Corruption** - Storage file damaged
+- **I/O Error** - Disk read/write failure
+
+### Recovery Strategies
+
+- Retry operations
+- Load from snapshot
+- Reconstruct from ledger
+- Request from peers
+
+## Monitoring
+
+### Metrics Tracked
+
+- Storage usage per slot
+- Cache hit/miss rates  
+- Clean/shrink performance
+- Scan latency
+- Flush time
+
+### Stats Reporting
+
+```rust
+pub struct AccountsStats {
+    // Detailed statistics
+    // Performance metrics
+    // Resource utilization
+}
+```
+
+## Key Files
+
+- **Accounts DB**: ~/workspace/source/accounts-db/src/accounts_db.rs
+- **Accounts Index**: ~/workspace/source/accounts-db/src/accounts_index.rs
+- **Accounts Cache**: ~/workspace/source/accounts-db/src/accounts_cache.rs
+- **Account Storage**: ~/workspace/source/accounts-db/src/account_storage.rs
+- **Append Vec**: ~/workspace/source/accounts-db/src/append_vec.rs

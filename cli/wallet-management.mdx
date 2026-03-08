@@ -1,0 +1,362 @@
+---
+title: 'Wallet & Keypair Management'
+description: 'Create, manage, and secure keypairs using solana-keygen'
+---
+
+The `solana-keygen` utility provides comprehensive keypair and wallet management for Harmonic Salsa. Use it to generate new keypairs, recover from seed phrases, and manage cryptographic identities.
+
+## Creating New Keypairs
+
+### Generate Random Keypair
+
+Create a new keypair with a random seed phrase:
+
+```bash
+solana-keygen new --outfile ~/.config/solana/my-keypair.json
+```
+
+This generates:
+- A 12-word BIP39 seed phrase (mnemonic)
+- An Ed25519 keypair
+- A JSON file with the private key
+
+**Important**: Save the seed phrase securely! It's the only way to recover your keypair.
+
+### Generate Without Saving
+
+Display seed phrase without writing to file:
+
+```bash
+solana-keygen new --no-outfile
+```
+
+### Silent Mode
+
+Generate without displaying seed phrase (useful for scripts):
+
+```bash
+solana-keygen new --outfile ~/keypair.json --silent
+```
+
+### Custom Seed Phrase Length
+
+Generate with different word counts:
+
+```bash
+# 12 words (default)
+solana-keygen new --word-count 12
+
+# 24 words (more secure)
+solana-keygen new --word-count 24
+
+# Supported: 12, 15, 18, 21, 24
+```
+
+### BIP39 Passphrase
+
+Add an extra passphrase for additional security:
+
+```bash
+# Will prompt for passphrase
+solana-keygen new
+
+# Skip passphrase
+solana-keygen new --no-bip39-passphrase
+```
+
+### Derivation Paths
+
+Generate keypairs using BIP44 derivation paths:
+
+```bash
+# Default path: m/44'/501'/0'/0'
+solana-keygen new --derivation-path "m/44'/501'/0'/0'"
+
+# Custom path for multiple accounts
+solana-keygen new --derivation-path "m/44'/501'/1'/0'"
+solana-keygen new --derivation-path "m/44'/501'/2'/0'"
+```
+
+## Recovering Keypairs
+
+### Recover from Seed Phrase
+
+Recover a keypair from an existing seed phrase:
+
+```bash
+solana-keygen recover --outfile ~/.config/solana/recovered.json
+```
+
+You'll be prompted to enter:
+1. Your seed phrase (12-24 words)
+2. Your passphrase (if used during generation)
+
+### Recover with Prompt URI
+
+Use the prompt URI scheme:
+
+```bash
+solana-keygen recover prompt:// --outfile ~/keypair.json
+```
+
+### Skip Validation
+
+Recover without validating seed phrase (not recommended):
+
+```bash
+solana-keygen recover --skip-seed-phrase-validation
+```
+
+## Viewing Public Keys
+
+### Display Pubkey from Keypair
+
+```bash
+solana-keygen pubkey ~/.config/solana/id.json
+```
+
+Output:
+```
+7gJvCYGLqW3j4WjxL8GkQWGHwj3kZqXbqN9XfqP3h2hA
+```
+
+### Save Pubkey to File
+
+```bash
+solana-keygen pubkey ~/.config/solana/id.json --outfile pubkey.json
+```
+
+### Display from Config
+
+Show pubkey for configured keypair:
+
+```bash
+solana-keygen pubkey
+```
+
+### BLS Public Key
+
+Generate BLS public key for validator consensus:
+
+```bash
+solana-keygen bls_pubkey ~/.config/solana/validator-keypair.json
+```
+
+## Verifying Keypairs
+
+### Verify Signature
+
+Confirm a keypair can sign and verify:
+
+```bash
+solana-keygen verify <PUBKEY> ~/.config/solana/id.json
+```
+
+Example:
+```bash
+solana-keygen verify 7gJvCYGLqW3j4WjxL8GkQWGHwj3kZqXbqN9XfqP3h2hA ~/my-keypair.json
+```
+
+Output on success:
+```
+Verification for public key: 7gJvCYG...: Success
+```
+
+## Grinding Vanity Addresses
+
+### Generate Vanity Keypairs
+
+Create keypairs with custom prefixes or suffixes:
+
+```bash
+# Find keypair starting with "sol"
+solana-keygen grind --starts-with sol:1
+
+# Find keypair ending with "ana"
+solana-keygen grind --ends-with ana:1
+
+# Find keypair starting AND ending with specific strings
+solana-keygen grind --starts-and-ends-with sol:ana:1
+```
+
+### Generate Multiple Vanity Keys
+
+```bash
+# Generate 5 keypairs starting with "sol"
+solana-keygen grind --starts-with sol:5
+
+# Generate 3 keypairs ending with "dev"
+solana-keygen grind --ends-with dev:3
+```
+
+### Case-Insensitive Matching
+
+```bash
+solana-keygen grind --starts-with SOL:1 --ignore-case
+```
+
+### Multi-threaded Grinding
+
+```bash
+# Use 8 threads for faster grinding
+solana-keygen grind --starts-with sol:1 --num-threads 8
+```
+
+### Grind with Mnemonic
+
+Generate vanity addresses with recoverable seed phrases:
+
+```bash
+solana-keygen grind --starts-with sol:1 --use-mnemonic --no-bip39-passphrase
+```
+
+**Note**: Mnemonic grinding is significantly slower than raw keypair grinding.
+
+### Grind Without Saving
+
+```bash
+solana-keygen grind --starts-with sol:1 --use-mnemonic --no-outfile
+```
+
+Displays seed phrases without creating files.
+
+## Security Best Practices
+
+### File Permissions
+
+Secure your keypair files:
+
+```bash
+# Set restrictive permissions
+chmod 600 ~/.config/solana/*.json
+
+# Verify permissions
+ls -la ~/.config/solana/*.json
+```
+
+### Backup Strategies
+
+1. **Seed Phrase**: Write down and store in a secure location
+2. **Encrypted Backup**: Encrypt keypair files before storing
+3. **Hardware Wallets**: Use for high-value accounts
+4. **Multiple Copies**: Store backups in separate secure locations
+
+### Encrypt Keypair Files
+
+```bash
+# Encrypt with GPG
+gpg --symmetric --cipher-algo AES256 ~/.config/solana/id.json
+
+# Decrypt when needed
+gpg --decrypt ~/.config/solana/id.json.gpg > ~/id.json
+```
+
+### Environment Variables
+
+Avoid hardcoding keypair paths:
+
+```bash
+# Set default keypair location
+export SOLANA_KEYPAIR=~/.config/solana/id.json
+
+# Use in commands
+solana balance
+```
+
+### Hardware Wallet Integration
+
+Use hardware wallets for production:
+
+```bash
+# Ledger hardware wallet
+solana-keygen pubkey usb://ledger
+
+# Sign with hardware wallet
+solana transfer --from usb://ledger <RECIPIENT> 1.0
+```
+
+## Multiple Keypair Management
+
+### Organize by Purpose
+
+```bash
+~/.config/solana/
+  ├── id.json              # Default keypair
+  ├── validator.json       # Validator identity
+  ├── vote-account.json    # Vote account
+  ├── stake-authority.json # Stake authority
+  └── deploy.json          # Program deployment
+```
+
+### Switch Between Keypairs
+
+```bash
+# Use specific keypair for single command
+solana balance --keypair ~/.config/solana/deploy.json
+
+# Set as default
+solana config set --keypair ~/.config/solana/deploy.json
+```
+
+## Keypair Formats
+
+### JSON Format
+
+Standard keypair file format:
+
+```json
+[123,45,67,89,...,234]
+```
+
+### Seed Phrase Format
+
+BIP39 mnemonic (human-readable):
+
+```
+witch collapse practice feed shame open despair creek road again ice least
+```
+
+### Base58 Format
+
+Not commonly used, but supported:
+
+```bash
+solana-keygen new --outfile /dev/stdout | base58
+```
+
+## Troubleshooting
+
+### Invalid Keypair File
+
+```bash
+# Verify keypair format
+solana-keygen verify <PUBKEY> <KEYPAIR>
+
+# Check file permissions
+ls -la ~/.config/solana/id.json
+```
+
+### Lost Seed Phrase
+
+If you lose your seed phrase and don't have the JSON file, the keypair is **unrecoverable**. Always backup seed phrases securely.
+
+### Permission Denied
+
+```bash
+# Fix file permissions
+chmod 600 ~/.config/solana/id.json
+
+# Fix directory permissions
+chmod 700 ~/.config/solana
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Cluster Queries" icon="server" href="/cli/cluster-query">
+    Query account balances and cluster state
+  </Card>
+  <Card title="Stake Management" icon="coins" href="/cli/stake-management">
+    Create and manage stake accounts
+  </Card>
+</CardGroup>

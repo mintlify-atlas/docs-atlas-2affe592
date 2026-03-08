@@ -1,0 +1,360 @@
+---
+title: Deployment Guide
+description: Production deployment procedures for Harmonic Salsa validators
+---
+
+# Deployment Guide
+
+This guide covers the complete deployment process for running a Harmonic Salsa validator in production.
+
+## System Requirements
+
+### Hardware Requirements
+
+**Minimum Specifications:**
+- CPU: 2.8GHz+ base clock, 12+ cores/24+ threads (AMD Epyc or Intel Xeon recommended)
+- RAM: 256GB+ (512GB recommended for mainnet)
+- Storage:
+  - Ledger: 2TB+ NVMe SSD (high IOPS required)
+  - Accounts DB: 2TB+ NVMe SSD (separate drive recommended)
+  - Total: 4TB+ usable storage across separate drives
+- Network: 1 Gbps+ symmetric, low latency
+- GPU: CUDA-enabled GPU (optional, Linux only)
+
+**Recommended Production Setup:**
+- CPU: 16+ cores, 3.0GHz+ boost clock
+- RAM: 512GB ECC memory
+- Storage: 2x 4TB NVMe drives in separate mounts
+- Network: 10 Gbps dedicated connection
+
+### Software Requirements
+
+**Operating System:**
+- Ubuntu 22.04 LTS or 24.04 LTS (recommended)
+- Fedora 38+ (supported)
+- Other Linux distributions (community tested)
+
+**Dependencies:**
+```bash
+# Ubuntu/Debian
+sudo apt-get update
+sudo apt-get install libssl-dev libudev-dev pkg-config zlib1g-dev \
+  llvm clang cmake make libprotobuf-dev protobuf-compiler libclang-dev
+
+# Fedora/RHEL
+sudo dnf install openssl-devel systemd-devel pkg-config zlib-devel \
+  llvm clang cmake make protobuf-devel protobuf-compiler perl-core libclang-dev
+```
+
+**Rust Toolchain:**
+```bash
+curl https://sh.rustup.rs -sSf | sh
+source $HOME/.cargo/env
+rustup component add rustfmt
+```
+
+The `rust-toolchain.toml` file in the repository ensures the correct Rust version is used automatically.
+
+## Network Configuration
+
+### Port Requirements
+
+**Required Open Ports:**
+- Gossip: 8001 (default, configurable)
+- RPC: 8899 (default, only if running RPC)
+- Dynamic Port Range: 8000-8020 (configurable via `--dynamic-port-range`)
+  - Minimum 25 ports recommended to avoid binding failures
+- QUIC: RPC port + 6 (e.g., 8905 if RPC is 8899)
+
+**Optional Ports:**
+- Admin RPC: Custom port (for validator control)
+- Metrics: Configured via `$SOLANA_METRICS_CONFIG`
+
+### Firewall Configuration
+
+**Using UFW (Uncomplicated Firewall):**
+```bash
+# Allow SSH
+sudo ufw allow 22/tcp
+
+# Allow validator ports
+sudo ufw allow 8001/tcp
+sudo ufw allow 8001/udp
+sudo ufw allow 8000:8020/tcp
+sudo ufw allow 8000:8020/udp
+
+# Allow RPC (only if needed)
+sudo ufw allow 8899/tcp
+
+# Enable firewall
+sudo ufw enable
+```
+
+### System Tuning
+
+**Kernel Parameters:**
+Create `/etc/sysctl.d/21-agave-validator.conf`:
+```bash
+sudo bash -c "cat >/etc/sysctl.d/21-agave-validator.conf <<EOF
+# Increase max UDP buffer sizes
+net.core.rmem_max = 134217728
+net.core.wmem_max = 134217728
+
+# Increase memory mapped files limit
+vm.max_map_count = 1000000
+
+# Increase number of allowed open file descriptors
+fs.nr_open = 1000000
+EOF"
+
+sudo sysctl -p /etc/sysctl.d/21-agave-validator.conf
+```
+
+**File Descriptor Limits:**
+Create `/etc/security/limits.d/90-solana-nofiles.conf`:
+```bash
+sudo bash -c "cat >/etc/security/limits.d/90-solana-nofiles.conf <<EOF
+# Increase process file descriptor count limit
+* - nofile 1000000
+# Increase memory locked limit (kB)
+* - memlock 2000000
+EOF"
+```
+
+**CPU Performance Governor:**
+```bash
+# Set performance governor for maximum clock speeds
+echo performance | sudo tee /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor
+
+# Force minimum frequency to maximum (example for 2.8 GHz)
+echo 2850000 | sudo tee /sys/devices/system/cpu/cpu*/cpufreq/scaling_min_freq
+```
+
+## Storage Setup
+
+### Drive Preparation
+
+**Identify Drives:**
+```bash
+lsblk -f
+```
+
+**Format Ledger Drive:**
+```bash
+sudo mkfs -t ext4 /dev/nvme0n1
+```
+
+**Format Accounts Drive:**
+```bash
+sudo mkfs -t ext4 /dev/nvme1n1
+```
+
+### Mount Points
+
+**Create Directories:**
+```bash
+sudo mkdir -p /mnt/ledger
+sudo mkdir -p /mnt/accounts
+```
+
+**Mount Drives:**
+```bash
+sudo mount /dev/nvme0n1 /mnt/ledger
+sudo mount /dev/nvme1n1 /mnt/accounts
+```
+
+**Permanent Mounts (fstab):**
+```bash
+# Get UUIDs
+sudo blkid
+
+# Add to /etc/fstab
+UUID=<ledger-uuid>  /mnt/ledger   ext4  defaults,noatime  0  2
+UUID=<accounts-uuid> /mnt/accounts ext4  defaults,noatime  0  2
+```
+
+**Set Permissions:**
+```bash
+sudo chown -R sol:sol /mnt/ledger
+sudo chown -R sol:sol /mnt/accounts
+```
+
+## Service Setup (systemd)
+
+### Create Sol User
+
+```bash
+sudo adduser sol
+```
+
+### Install Harmonic Salsa
+
+**Build from Source:**
+```bash
+# Clone repository
+git clone https://github.com/harmonic/salsa.git
+cd salsa
+
+# Build release version (REQUIRED for production)
+./cargo build --release
+
+# Install binaries
+sudo cp target/release/agave-validator /usr/local/bin/
+sudo cp target/release/solana* /usr/local/bin/
+```
+
+### Systemd Service Configuration
+
+**Create Service File:**
+Create `/etc/systemd/system/sol.service`:
+```ini
+[Unit]
+Description=Harmonic Salsa Validator
+After=network.target
+StartLimitIntervalSec=0
+Wants=systuner.service
+After=systuner.service
+
+[Service]
+Type=simple
+Restart=always
+RestartSec=1
+User=sol
+LimitNOFILE=1000000
+LimitMEMLOCK=2000000000
+LogRateLimitIntervalSec=0
+Environment="PATH=/bin:/usr/bin:/home/sol/.local/share/solana/install/active_release/bin:/usr/local/bin"
+ExecStart=/home/sol/bin/validator.sh
+
+[Install]
+WantedBy=multi-user.target
+```
+
+### Validator Startup Script
+
+**Create Validator Script:**
+Create `/home/sol/bin/validator.sh`:
+```bash
+#!/bin/bash
+exec agave-validator \
+    --identity /home/sol/validator-keypair.json \
+    --vote-account /home/sol/vote-account-keypair.json \
+    --known-validator <KNOWN_VALIDATOR_1> \
+    --known-validator <KNOWN_VALIDATOR_2> \
+    --known-validator <KNOWN_VALIDATOR_3> \
+    --only-known-rpc \
+    --log /home/sol/agave-validator.log \
+    --ledger /mnt/ledger \
+    --accounts /mnt/accounts \
+    --rpc-port 8899 \
+    --dynamic-port-range 8000-8020 \
+    --entrypoint <ENTRYPOINT_ADDRESS>:8001 \
+    --expected-genesis-hash <GENESIS_HASH> \
+    --wal-recovery-mode skip_any_corrupted_record \
+    --limit-ledger-size \
+    --no-port-check
+```
+
+**Make Executable:**
+```bash
+chmod +x /home/sol/bin/validator.sh
+```
+
+### Enable and Start Service
+
+```bash
+# Reload systemd
+sudo systemctl daemon-reload
+
+# Enable service to start on boot
+sudo systemctl enable sol
+
+# Start service
+sudo systemctl start sol
+
+# Check status
+sudo systemctl status sol
+```
+
+## Log Rotation
+
+**Configure logrotate:**
+Create `/etc/logrotate.d/sol`:
+```bash
+cat > /tmp/logrotate.sol <<EOF
+/home/sol/agave-validator.log {
+  rotate 7
+  daily
+  missingok
+  postrotate
+    systemctl kill -s USR1 sol.service
+  endscript
+}
+EOF
+sudo cp /tmp/logrotate.sol /etc/logrotate.d/sol
+sudo systemctl restart logrotate.service
+```
+
+## XDP Configuration (Advanced)
+
+When XDP is enabled for enhanced networking performance:
+
+**Required Capabilities:**
+```ini
+# In systemd service file [Service] section:
+CapabilityBoundingSet=CAP_NET_RAW CAP_NET_ADMIN CAP_BPF CAP_PERFMON
+```
+
+**Or set capabilities on binary:**
+```bash
+sudo setcap cap_net_raw,cap_net_admin,cap_bpf,cap_perfmon=p /usr/local/bin/agave-validator
+```
+
+**Note:** Capabilities must be reapplied after binary updates.
+
+## Post-Deployment Validation
+
+### Verify Validator is Running
+
+```bash
+# Check process
+ps aux | grep agave-validator
+
+# Check logs
+tail -f /home/sol/agave-validator.log
+
+# Check gossip registration
+solana gossip | grep $(solana-keygen pubkey ~/validator-keypair.json)
+
+# Check validator list (after stake activation)
+solana validators | grep $(solana-keygen pubkey ~/validator-keypair.json)
+```
+
+### Monitor Catchup Progress
+
+```bash
+solana catchup $(solana-keygen pubkey ~/validator-keypair.json)
+```
+
+## Common Deployment Issues
+
+### Insufficient Memory Lock
+**Symptom:** Validator fails to start with memory lock errors
+**Solution:** Ensure `LimitMEMLOCK=2000000000` is set in systemd service file
+
+### Port Binding Failures
+**Symptom:** "Address already in use" errors
+**Solution:** Ensure dynamic port range has at least 25 ports available
+
+### Slow Catchup
+**Symptom:** Validator takes excessive time to catch up
+**Solution:**
+- Verify CPU governor is set to "performance"
+- Ensure release build is used (not debug)
+- Check network bandwidth and latency
+
+### Disk Space Issues
+**Symptom:** Out of disk space
+**Solution:** Ensure each drive has 2TB+ available, use `--limit-ledger-size`
+
+Refer to ~/workspace/source/docs/src/operations/setup-a-validator.md and ~/workspace/source/docs/src/operations/guides/validator-start.md for additional deployment details.

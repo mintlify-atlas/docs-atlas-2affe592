@@ -1,0 +1,600 @@
+---
+title: Production Monitoring
+description: Monitoring and observability for Harmonic Salsa validators
+---
+
+# Production Monitoring
+
+Comprehensive monitoring is essential for maintaining validator health, diagnosing issues quickly, and ensuring optimal performance.
+
+## Metrics Collection
+
+### InfluxDB Integration
+
+**Configuration:**
+Set the `SOLANA_METRICS_CONFIG` environment variable to report metrics to InfluxDB.
+
+```bash
+# In validator.sh or systemd environment
+export SOLANA_METRICS_CONFIG="host=<influx-host>:<port>,db=<database>,u=<username>,p=<password>"
+```
+
+**Public Dashboards:**
+Solana provides public InfluxDB instances for cluster metrics:
+- Production: https://metrics.solana.com:8888/
+- Testing: https://metrics.solana.com:8889/
+
+**Internal Metrics (Local Clusters):**
+- https://internal-metrics.solana.com:8888/
+- https://internal-metrics.solana.com:8889/
+
+**Using Chronograf:**
+Access validator-specific metrics via Chronograf interface to:
+- Query historical performance data
+- Create custom dashboards
+- Set up alerts based on metrics
+- Analyze trends over time
+
+### Key Metrics to Monitor
+
+**Validator Health:**
+- `validator_status`: Online/offline status
+- `validator_delinquent`: Delinquency flag
+- `validator_skip_rate`: Percentage of skipped slots
+- `validator_root_slot`: Latest root slot
+- `validator_vote_distance`: Distance from cluster vote
+
+**Performance Metrics:**
+- `banking_stage_transactions_processed`: TPS throughput
+- `banking_stage_slot_boundary_count`: Slot completion rate
+- `poh_tick_rate`: PoH tick generation rate
+- `replay_stage_replay_transactions`: Transaction replay rate
+
+**Resource Utilization:**
+- `process_cpu_usage`: CPU utilization percentage
+- `process_memory_usage`: Memory usage in bytes
+- `process_disk_usage`: Disk space usage
+- `network_rx_bytes`: Network receive rate
+- `network_tx_bytes`: Network transmit rate
+
+**Gossip Metrics:**
+- `gossip_num_nodes`: Number of known nodes
+- `gossip_crds_table_size`: CRDS table size
+- `gossip_push_msg_count`: Gossip push message count
+
+**RPC Metrics (if enabled):**
+- `rpc_request_count`: Total RPC requests
+- `rpc_request_duration`: Request latency
+- `rpc_error_count`: RPC error rate
+
+## Health Monitoring
+
+### agave-watchtower
+
+**Overview:**
+`agave-watchtower` is a monitoring tool that tracks validator health and sends notifications when issues are detected.
+
+**Basic Usage:**
+```bash
+agave-watchtower \
+  --validator-identity <VALIDATOR_PUBKEY> \
+  --monitor-active-stake
+```
+
+**Best Practices:**
+- Run watchtower on a separate server (not on validator)
+- Configure multiple notification channels
+- Monitor both validator and cluster health
+
+### Notification Channels
+
+#### Telegram Setup
+
+**Step 1: Create Bot**
+1. Message `@BotFather` on Telegram
+2. Send command: `/newbot`
+3. Name your bot (must end with "bot")
+4. Save the HTTP API token
+
+**Step 2: Send Test Message**
+1. Find your bot in Telegram
+2. Send: `/start`
+
+**Step 3: Create Group**
+1. Create new Telegram group
+2. Add your bot to the group
+3. Send message to bot: `@yourbot hello`
+
+**Step 4: Get Chat ID**
+```bash
+# Replace <TOKEN> with your bot token
+curl https://api.telegram.org/bot<TOKEN>/getUpdates
+
+# Find the "chat" object and note the "id" (negative number)
+```
+
+**Step 5: Configure Watchtower**
+```bash
+export TELEGRAM_BOT_TOKEN="<your-bot-token>"
+export TELEGRAM_CHAT_ID="<your-chat-id>"
+
+agave-watchtower \
+  --validator-identity <VALIDATOR_PUBKEY> \
+  --monitor-active-stake
+```
+
+#### Discord Setup
+
+**Create Webhook:**
+1. Open Discord server settings
+2. Navigate to Integrations → Webhooks
+3. Create webhook and copy URL
+
+**Configure:**
+```bash
+export DISCORD_WEBHOOK="<your-webhook-url>"
+
+agave-watchtower \
+  --validator-identity <VALIDATOR_PUBKEY> \
+  --monitor-active-stake
+```
+
+#### Slack Setup
+
+**Create Webhook:**
+1. Go to Slack App Directory
+2. Search for "Incoming Webhooks"
+3. Add to workspace and select channel
+4. Copy webhook URL
+
+**Configure:**
+```bash
+export SLACK_WEBHOOK="<your-webhook-url>"
+
+agave-watchtower \
+  --validator-identity <VALIDATOR_PUBKEY> \
+  --monitor-active-stake
+```
+
+#### Twilio SMS Setup
+
+**Get Credentials:**
+1. Create Twilio account
+2. Get Account SID and Auth Token
+3. Get Twilio phone number
+
+**Configure:**
+```bash
+export TWILIO_ACCOUNT_SID="<your-account-sid>"
+export TWILIO_AUTH_TOKEN="<your-auth-token>"
+export TWILIO_FROM_NUMBER="<twilio-phone>"
+export TWILIO_TO_NUMBER="<your-phone>"
+
+agave-watchtower \
+  --validator-identity <VALIDATOR_PUBKEY> \
+  --monitor-active-stake
+```
+
+### Running Watchtower as Service
+
+**Create Systemd Service:**
+Create `/etc/systemd/system/watchtower.service`:
+```ini
+[Unit]
+Description=Solana Watchtower
+After=network.target
+
+[Service]
+Type=simple
+Restart=always
+RestartSec=60
+User=sol
+Environment="TELEGRAM_BOT_TOKEN=<your-token>"
+Environment="TELEGRAM_CHAT_ID=<your-chat-id>"
+ExecStart=/usr/local/bin/agave-watchtower \
+  --validator-identity <VALIDATOR_PUBKEY> \
+  --monitor-active-stake \
+  --minimum-validator-identity-balance 0.5
+
+[Install]
+WantedBy=multi-user.target
+```
+
+**Enable and Start:**
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable watchtower
+sudo systemctl start watchtower
+sudo systemctl status watchtower
+```
+
+### Manual Health Checks
+
+**Check Validator Status:**
+```bash
+# Check if validator is in gossip
+solana gossip | grep $(solana-keygen pubkey ~/validator-keypair.json)
+
+# Check validator list (requires activated stake)
+solana validators | grep $(solana-keygen pubkey ~/validator-keypair.json)
+
+# Check catchup status
+solana catchup $(solana-keygen pubkey ~/validator-keypair.json)
+
+# Check validator health via RPC
+curl -X POST -H "Content-Type: application/json" -d '{
+  "jsonrpc":"2.0","id":1,
+  "method":"getHealth"
+}' http://localhost:8899
+```
+
+**Check Vote Account:**
+```bash
+# Show vote account info
+solana vote-account $(solana-keygen pubkey ~/vote-account-keypair.json)
+
+# Check voting status
+solana block-production | grep $(solana-keygen pubkey ~/validator-keypair.json)
+```
+
+## Performance Dashboards
+
+### Public Grafana Dashboards
+
+**Cluster Telemetry:**
+https://metrics.solana.com/d/monitor-edge/cluster-telemetry
+
+Shows:
+- Cluster stability
+- Validator streamer stats
+- Tower consensus metrics
+- IP network statistics
+- Snapshot status
+- RPC service health
+
+**Fee Market:**
+https://metrics.solana.com/d/0n54roOVz/fee-market
+
+Shows:
+- Total prioritization fees
+- Block minimum fees
+- Cost tracker statistics
+
+**Ping Results:**
+https://metrics.solana.com/d/UpIWbId4k/ping-result
+
+Shows:
+- Ping API metrics
+- Validator responsiveness
+
+**Internal Dashboards (Local Clusters):**
+https://internal-metrics.solana.com:3000/
+
+### Custom Dashboards
+
+**Grafana Setup:**
+Deploy your own Grafana instance for custom dashboards:
+
+```bash
+# Install Grafana
+sudo apt-get install -y software-properties-common
+sudo add-apt-repository "deb https://packages.grafana.com/oss/deb stable main"
+sudo apt-get update
+sudo apt-get install grafana
+
+# Start Grafana
+sudo systemctl start grafana-server
+sudo systemctl enable grafana-server
+
+# Access at http://localhost:3000
+# Default credentials: admin/admin
+```
+
+**Configure InfluxDB Data Source:**
+1. Add InfluxDB as data source
+2. Configure connection to metrics database
+3. Test connection
+
+**Create Validator Dashboard:**
+Key panels to include:
+- Current slot vs cluster slot
+- Vote credits per epoch
+- Skip rate over time
+- CPU and memory usage
+- Network bandwidth
+- Disk I/O and space
+- Transaction processing rate
+
+### Performance Baselines
+
+**Expected Performance Metrics:**
+
+**PoH Tick Rate:**
+- Should match cluster target (typically ~6,250 ticks/second)
+- Slower rate indicates CPU performance issues
+- Check: `lscpu` for clock speed
+
+**Skip Rate:**
+- Target: Less than 5% for healthy validator
+- 5-10%: Investigate performance
+- Greater than 10%: Critical, likely delinquent
+
+**Vote Distance:**
+- Target: Less than 128 slots from cluster
+- Higher values indicate catchup issues
+
+**Memory Usage:**
+- Typical: 128-256GB utilized
+- Monitor for memory leaks (constantly increasing)
+
+**Disk I/O:**
+- Ledger: High read/write during catchup
+- Accounts: Steady I/O during normal operation
+- High I/O can indicate disk bottleneck
+
+## Alerting Setup
+
+### Critical Alerts
+
+**Immediate Action Required:**
+- Validator delinquent
+- Vote account credits stopped increasing
+- Validator not in gossip
+- Process crashed/stopped
+- Disk space less than 10% free
+- Memory usage greater than 95%
+
+**Warning Alerts:**
+- Skip rate greater than 5%
+- Vote distance greater than 100 slots
+- Disk space less than 20% free
+- Memory usage greater than 80%
+- High CPU usage (greater than 90%) sustained
+- Network errors increasing
+
+### Alert Configuration Examples
+
+**Watchtower Alerts:**
+Automatic notifications when:
+- Validator becomes delinquent
+- Validator returns to active status
+- Identity balance low
+- Vote account balance low
+
+**Grafana Alerts:**
+Configure in Grafana UI or via API:
+```json
+{
+  "name": "High Skip Rate",
+  "conditions": [
+    {
+      "evaluator": {
+        "type": "gt",
+        "params": [5]
+      },
+      "query": {
+        "params": ["skip_rate", "5m", "now"]
+      }
+    }
+  ]
+}
+```
+
+**System Alerts (via systemd):**
+Monitor service failures:
+```bash
+# /etc/systemd/system/sol-alert@.service
+[Unit]
+Description=Validator Alert for %i
+
+[Service]
+Type=oneshot
+ExecStart=/home/sol/bin/send-alert.sh "Validator service %i failed"
+```
+
+Link to main service:
+```ini
+# In sol.service [Unit] section
+OnFailure=sol-alert@%n.service
+```
+
+## Log Analysis
+
+### Important Log Patterns
+
+**Healthy Operation:**
+```
+INFO  solana_core::replay_stage] Slot <N> is now rooted
+INFO  solana_core::banking_stage] Processed <N> transactions
+```
+
+**Warning Signs:**
+```
+WARN  solana_runtime::bank] Slot <N> skipped
+ERROR solana_core::replay_stage] Failed to process entry
+ERROR solana_gossip] Gossip push message timeout
+```
+
+**Critical Issues:**
+```
+ERROR solana_core::validator] Unable to load ledger
+PANIC solana_runtime] thread panicked
+ERROR solana_ledger::blockstore] RocksDB error
+```
+
+### Log Monitoring Commands
+
+**Real-time Monitoring:**
+```bash
+# Tail logs
+tail -f /home/sol/agave-validator.log
+
+# Filter for errors
+tail -f /home/sol/agave-validator.log | grep ERROR
+
+# Monitor via journald (if using systemd)
+journalctl -u sol -f
+```
+
+**Log Analysis:**
+```bash
+# Count errors in last hour
+grep ERROR /home/sol/agave-validator.log | \
+  grep "$(date -d '1 hour ago' '+%Y-%m-%d %H')" | wc -l
+
+# Find panic events
+grep -i panic /home/sol/agave-validator.log
+
+# Check for specific issues
+grep "out of disk space" /home/sol/agave-validator.log
+grep "memory" /home/sol/agave-validator.log | grep -i error
+```
+
+**Automated Log Analysis:**
+Create monitoring script:
+```bash
+#!/bin/bash
+# /home/sol/bin/check-logs.sh
+
+LOG_FILE="/home/sol/agave-validator.log"
+ERROR_COUNT=$(grep ERROR "$LOG_FILE" | tail -1000 | wc -l)
+
+if [ $ERROR_COUNT -gt 100 ]; then
+    echo "High error count: $ERROR_COUNT in last 1000 lines"
+    # Send alert
+fi
+```
+
+## Resource Monitoring
+
+### System Resource Monitoring
+
+**CPU Monitoring:**
+```bash
+# Real-time CPU usage
+top -u sol
+
+# CPU usage over time
+sar -u 5 10
+
+# Per-core usage
+mpstat -P ALL 5
+```
+
+**Memory Monitoring:**
+```bash
+# Memory usage
+free -h
+
+# Detailed memory stats
+vmstat 5
+
+# Process memory
+ps aux --sort=-%mem | head -10
+```
+
+**Disk Monitoring:**
+```bash
+# Disk space
+df -h
+
+# Disk I/O
+iostat -x 5
+
+# Specific directory usage
+du -sh /mnt/ledger/*
+du -sh /mnt/accounts/*
+```
+
+**Network Monitoring:**
+```bash
+# Network interface stats
+ip -s link
+
+# Bandwidth usage
+iftop -i eth0
+
+# Connection count
+netstat -an | grep ESTABLISHED | wc -l
+```
+
+### Automated Resource Monitoring
+
+**Using collectd:**
+```bash
+# Install collectd
+sudo apt install collectd
+
+# Configure to send to InfluxDB
+# Edit /etc/collectd/collectd.conf
+```
+
+**Using Prometheus:**
+```bash
+# Install node_exporter
+wget https://github.com/prometheus/node_exporter/releases/download/v*/node_exporter-*.linux-amd64.tar.gz
+tar xvfz node_exporter-*.tar.gz
+cd node_exporter-*/
+./node_exporter
+
+# Configure Prometheus to scrape metrics
+```
+
+## Monitoring Best Practices
+
+### Essential Monitoring Checklist
+
+**Setup:**
+- [ ] agave-watchtower running on separate server
+- [ ] Multiple notification channels configured
+- [ ] Grafana dashboards configured
+- [ ] Alert thresholds set appropriately
+- [ ] Log rotation configured
+- [ ] Resource monitoring enabled
+
+**Daily:**
+- [ ] Check validator status in dashboard
+- [ ] Review alert notifications
+- [ ] Verify vote credits increasing
+- [ ] Check skip rate
+
+**Weekly:**
+- [ ] Review performance trends
+- [ ] Analyze error logs
+- [ ] Check disk space growth rate
+- [ ] Verify backup procedures
+
+**Monthly:**
+- [ ] Review and tune alert thresholds
+- [ ] Update monitoring dashboards
+- [ ] Test alert notifications
+- [ ] Document any incidents
+
+### Integration with Existing Tools
+
+**APM Solutions:**
+- Datadog
+- New Relic
+- AppDynamics
+
+**Log Management:**
+- ELK Stack (Elasticsearch, Logstash, Kibana)
+- Splunk
+- Graylog
+
+**Incident Management:**
+- PagerDuty
+- Opsgenie
+- VictorOps
+
+## Troubleshooting with Monitoring Data
+
+When issues occur, use monitoring data to:
+
+1. **Establish Timeline:** When did the issue start?
+2. **Identify Symptoms:** What metrics are abnormal?
+3. **Correlate Events:** What changed before the issue?
+4. **Resource Analysis:** Are resources exhausted?
+5. **Compare Baselines:** How does current state differ from normal?
+
+Refer to the troubleshooting guide for specific issue resolution procedures.

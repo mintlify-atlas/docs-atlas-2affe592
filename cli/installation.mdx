@@ -1,0 +1,229 @@
+---
+title: 'CLI Installation'
+description: 'Install Harmonic Salsa CLI tools separately from the validator software'
+---
+
+The Harmonic Salsa CLI tools can be installed independently from validator software, making them ideal for developers and operators who need to interact with the blockchain without running a full node.
+
+## Install from Release
+
+The recommended method is to install pre-built binaries from the official release:
+
+```bash
+sh -c "$(curl -sSfL https://release.solana.com/stable/install)"
+```
+
+This installs the latest stable version of:
+
+- `solana` - Main CLI tool
+- `solana-keygen` - Keypair management
+- `solana-validator` - Validator software (optional)
+
+The installer adds the tools to your PATH automatically.
+
+## Install Specific Version
+
+To install a specific version:
+
+```bash
+sh -c "$(curl -sSfL https://release.solana.com/v1.18.0/install)"
+```
+
+For edge/beta versions:
+
+```bash
+# Edge (latest development)
+sh -c "$(curl -sSfL https://release.solana.com/edge/install)"
+
+# Beta channel
+sh -c "$(curl -sSfL https://release.solana.com/beta/install)"
+```
+
+## Update Existing Installation
+
+Update to the latest version:
+
+```bash
+solana-install update
+```
+
+Check for available updates:
+
+```bash
+solana-install info
+```
+
+## Build from Source
+
+For development or custom builds:
+
+### Prerequisites
+
+```bash
+# Install Rust
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+
+# Install build dependencies (Ubuntu/Debian)
+sudo apt-get update
+sudo apt-get install -y \
+  libssl-dev \
+  libudev-dev \
+  pkg-config \
+  zlib1g-dev \
+  llvm \
+  clang \
+  cmake \
+  make \
+  libprotobuf-dev \
+  protobuf-compiler
+```
+
+### Clone and Build
+
+```bash
+# Clone repository
+git clone https://github.com/your-org/harmonic-salsa.git
+cd harmonic-salsa
+
+# Build CLI tools only
+cargo build --release --bin solana --bin solana-keygen
+
+# Binaries are in target/release/
+./target/release/solana --version
+```
+
+### Install System-Wide
+
+```bash
+cargo install --path cli --locked
+cargo install --path keygen --locked
+```
+
+## Docker Installation
+
+Run CLI tools in a Docker container:
+
+```bash
+# Pull official image
+docker pull solanalabs/solana:stable
+
+# Run commands
+docker run --rm solanalabs/solana:stable solana --version
+```
+
+Create an alias for convenience:
+
+```bash
+alias solana='docker run --rm -v ~/.config/solana:/root/.config/solana solanalabs/solana:stable solana'
+```
+
+## Verify Installation
+
+Confirm the CLI is installed correctly:
+
+```bash
+# Check version
+solana --version
+solana-keygen --version
+
+# Check PATH
+which solana
+which solana-keygen
+```
+
+## Initial Configuration
+
+After installation, configure the CLI:
+
+```bash
+# Set cluster URL
+solana config set --url https://api.mainnet-beta.solana.com
+
+# Or use devnet for testing
+solana config set --url https://api.devnet.solana.com
+
+# Generate keypair if needed
+solana-keygen new --outfile ~/.config/solana/id.json
+
+# Set default keypair
+solana config set --keypair ~/.config/solana/id.json
+
+# Verify configuration
+solana config get
+```
+
+## Environment Variables
+
+Optional environment variables:
+
+```bash
+# Override config file location
+export SOLANA_CONFIG_FILE=~/my-config.yml
+
+# Set default RPC URL
+export SOLANA_RPC_URL=https://api.mainnet-beta.solana.com
+
+# Set default keypair
+export SOLANA_KEYPAIR=~/.config/solana/id.json
+```
+
+## Uninstall
+
+Remove installed binaries:
+
+```bash
+# If installed via release script
+rm -rf ~/.local/share/solana/install
+
+# If installed via cargo
+cargo uninstall solana-cli solana-keygen
+
+# Remove configuration (optional)
+rm -rf ~/.config/solana
+```
+
+## Troubleshooting
+
+### Command Not Found
+
+If `solana` is not in your PATH:
+
+```bash
+# Add to PATH (add to ~/.bashrc or ~/.zshrc)
+export PATH="$HOME/.local/share/solana/install/active_release/bin:$PATH"
+
+# Reload shell
+source ~/.bashrc
+```
+
+### Permission Denied
+
+If you get permission errors:
+
+```bash
+# Make binaries executable
+chmod +x ~/.local/share/solana/install/active_release/bin/*
+```
+
+### SSL Certificate Errors
+
+If you encounter SSL issues:
+
+```bash
+# Update ca-certificates (Ubuntu/Debian)
+sudo apt-get update && sudo apt-get install -y ca-certificates
+
+# macOS
+open /Applications/Python\ 3.x/Install\ Certificates.command
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Wallet Management" icon="wallet" href="/cli/wallet-management">
+    Generate and manage keypairs
+  </Card>
+  <Card title="Cluster Queries" icon="server" href="/cli/cluster-query">
+    Query blockchain information
+  </Card>
+</CardGroup>

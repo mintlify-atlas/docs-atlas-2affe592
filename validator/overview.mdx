@@ -1,0 +1,128 @@
+---
+title: Validator Overview
+description: Learn about the Harmonic Salsa validator and its role in the network
+---
+
+# Validator Overview
+
+The Harmonic Salsa validator is a fork of the Solana validator client, optimized for the Harmonic network. It is responsible for validating transactions, producing blocks, and maintaining consensus across the network.
+
+## What is a Validator?
+
+A validator is a node that participates in the Harmonic network by:
+
+- **Validating Transactions**: Verifying that transactions are legitimate and conform to network rules
+- **Producing Blocks**: Creating new blocks when selected as a leader
+- **Maintaining Consensus**: Voting on blocks to reach agreement on the state of the blockchain
+- **Storing Ledger Data**: Keeping a copy of the blockchain history
+- **Serving RPC Requests**: Providing API access to network data (optional)
+
+## Key Responsibilities
+
+### Consensus Participation
+
+Validators participate in Proof of Stake consensus by:
+
+- Casting votes on blocks they believe are valid
+- Building on the most recent confirmed block
+- Following the tower Byzantine Fault Tolerance (BFT) algorithm
+- Maintaining a vote account that tracks their voting history
+
+### Transaction Processing
+
+Validators process transactions through several stages:
+
+1. **TPU (Transaction Processing Unit)**: Receives incoming transactions
+2. **Banking Stage**: Validates and executes transactions
+3. **PoH (Proof of History)**: Orders transactions with cryptographic timestamps
+4. **Block Production**: Packages transactions into blocks when acting as leader
+
+### Block Validation
+
+When not producing blocks, validators:
+
+- Receive blocks from the current leader
+- Verify block signatures and transaction validity
+- Execute transactions to update local state
+- Vote on blocks they successfully process
+
+### Network Services
+
+- **Gossip**: Share information about the network topology and validator status
+- **Repair**: Request missing blocks from other validators
+- **Serve Repair**: Respond to repair requests from other validators
+- **RPC (optional)**: Serve JSON-RPC requests from clients and applications
+
+## Validator Requirements
+
+### Hardware Requirements
+
+Minimum recommended specifications:
+
+- **CPU**: 12+ cores @ 2.8GHz or faster
+- **RAM**: 128GB or more
+- **Storage**: PCIe Gen3 x4 NVME SSD or better (500GB+)
+- **Network**: 1 Gbps symmetric internet connection
+
+### Software Requirements
+
+- Linux (Ubuntu 20.04+ recommended)
+- Rust toolchain (automatically managed via `rust-toolchain.toml`)
+- System dependencies (see [Quick Start](https://docs.harmonic.gg/quickstart))
+
+## Validator Types
+
+### Full Validator
+
+Runs all services including consensus voting, block production, and optionally RPC.
+
+### RPC Node
+
+Configured with `--no-voting` to serve RPC requests without participating in consensus. Useful for:
+
+- Application backends
+- Block explorers
+- High-throughput RPC services
+
+### Restricted Repair-Only Node
+
+Runs with `--restricted-repair-only-mode` to sync the ledger without exposing network services.
+
+## Architecture Overview
+
+The validator consists of several key components:
+
+- **Core**: Main validator logic and consensus
+- **Gossip**: Peer-to-peer communication layer
+- **Blockstore**: On-disk ledger storage using RocksDB
+- **Accounts Database**: State storage for all accounts
+- **Banking Stage**: Transaction processing pipeline
+- **PoH Service**: Proof of History generator
+- **RPC Service**: JSON-RPC API server (optional)
+- **Geyser Plugins**: Extensible plugin system for streaming account updates
+
+## Harmonic-Specific Features
+
+Harmonic Salsa includes additional features from Jito:
+
+- **Block Engine Integration**: Connect to block engines for optimized block production
+- **Relayer Support**: Integrate with relayer services for transaction forwarding
+- **Bundle Processing**: Support for transaction bundles
+- **Enhanced Metrics**: Additional monitoring and performance metrics
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Setup Guide" icon="gear" href="/validator/setup">
+    Learn how to set up and configure your validator
+  </Card>
+  <Card title="Operations" icon="play" href="/validator/operations">
+    Day-to-day validator operations and management
+  </Card>
+  <Card title="Configuration" icon="sliders" href="/validator/configuration">
+    Detailed configuration options and tuning
+  </Card>
+  <Card title="Monitoring" icon="chart-line" href="/validator/monitoring">
+    Monitor your validator's health and performance
+  </Card>
+</CardGroup>

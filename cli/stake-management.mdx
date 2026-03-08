@@ -1,0 +1,571 @@
+---
+title: 'Stake Management'
+description: 'Create, delegate, and manage stake accounts using the Harmonic Salsa CLI'
+---
+
+Stake management commands allow you to participate in network security by delegating SOL to validators. Use these commands to create stake accounts, delegate to validators, and manage the stake lifecycle.
+
+## Creating Stake Accounts
+
+### Create Stake Account
+
+Create a new stake account:
+
+```bash
+solana create-stake-account <STAKE_ACCOUNT_KEYPAIR> <AMOUNT>
+```
+
+Example:
+```bash
+# Generate stake account keypair
+solana-keygen new --outfile ~/stake-account.json
+
+# Create with 100 SOL
+solana create-stake-account ~/stake-account.json 100
+```
+
+### Create with Custom Authorities
+
+Specify stake and withdraw authorities:
+
+```bash
+solana create-stake-account ~/stake-account.json 100 \
+  --stake-authority <STAKE_AUTHORITY_PUBKEY> \
+  --withdraw-authority <WITHDRAW_AUTHORITY_PUBKEY>
+```
+
+### Create with Lockup
+
+Add lockup restrictions:
+
+```bash
+# Lockup by epoch
+solana create-stake-account ~/stake-account.json 100 \
+  --lockup-epoch 500
+
+# Lockup by date
+solana create-stake-account ~/stake-account.json 100 \
+  --lockup-date "2025-12-31T00:00:00Z"
+
+# With custodian
+solana create-stake-account ~/stake-account.json 100 \
+  --lockup-epoch 500 \
+  --custodian <CUSTODIAN_PUBKEY>
+```
+
+### Create from Specific Source
+
+```bash
+solana create-stake-account ~/stake-account.json 100 \
+  --from ~/funding-keypair.json
+```
+
+### Create with Seed
+
+Create at a derived address:
+
+```bash
+solana create-stake-account ~/stake-account.json 100 \
+  --seed "my-stake-seed"
+```
+
+### Create with Authority Verification
+
+Verify withdraw authority as a signer:
+
+```bash
+solana create-stake-account-checked ~/stake-account.json 100 \
+  --withdraw-authority ~/withdraw-authority.json
+```
+
+## Delegating Stake
+
+### Delegate to Validator
+
+Delegate stake to a vote account:
+
+```bash
+solana delegate-stake <STAKE_ACCOUNT_ADDRESS> <VOTE_ACCOUNT_ADDRESS>
+```
+
+Example:
+```bash
+solana delegate-stake CY6zXcruPNfFkhSyHgvLJB5zWzZqr6u3MjD4TgqnNVdP \
+  Awes4Tr6TX8JDzEhCZY2QVNimT6iD1zWHzf1vNyGvpLM
+```
+
+### Delegate with Custom Authority
+
+```bash
+solana delegate-stake <STAKE_ACCOUNT_ADDRESS> <VOTE_ACCOUNT_ADDRESS> \
+  --stake-authority ~/stake-authority.json
+```
+
+### Force Delegation
+
+Bypass vote account sanity checks (use carefully):
+
+```bash
+solana delegate-stake <STAKE_ACCOUNT_ADDRESS> <VOTE_ACCOUNT_ADDRESS> \
+  --force
+```
+
+**Warning**: Only use `--force` if you understand the risks. It bypasses checks that ensure the vote account is valid.
+
+## Viewing Stake Information
+
+### View Stake Account
+
+Display stake account details:
+
+```bash
+solana stake-account <STAKE_ACCOUNT_ADDRESS>
+```
+
+Output shows:
+- Balance
+- State (Initialized, Activating, Active, Deactivating)
+- Delegated vote account
+- Credits observed
+- Lockup information
+- Authorities
+
+### View with Rewards
+
+Display inflation rewards:
+
+```bash
+solana stake-account <STAKE_ACCOUNT_ADDRESS> --with-rewards
+
+# Show specific number of epochs
+solana stake-account <STAKE_ACCOUNT_ADDRESS> \
+  --with-rewards \
+  --num-rewards-epochs 10
+
+# Start from specific epoch
+solana stake-account <STAKE_ACCOUNT_ADDRESS> \
+  --with-rewards \
+  --starting-epoch 450
+
+# CSV format
+solana stake-account <STAKE_ACCOUNT_ADDRESS> \
+  --with-rewards \
+  --csv
+```
+
+### Display in Lamports
+
+```bash
+solana stake-account <STAKE_ACCOUNT_ADDRESS> --lamports
+```
+
+## Deactivating Stake
+
+### Deactivate Stake
+
+Begin deactivating delegated stake:
+
+```bash
+solana deactivate-stake <STAKE_ACCOUNT_ADDRESS>
+```
+
+**Note**: Deactivation takes effect in the next epoch and completes over several epochs.
+
+### Deactivate with Custom Authority
+
+```bash
+solana deactivate-stake <STAKE_ACCOUNT_ADDRESS> \
+  --stake-authority ~/stake-authority.json
+```
+
+### Deactivate Delinquent Stake
+
+Deactivate stake delegated to a delinquent validator:
+
+```bash
+solana deactivate-stake <STAKE_ACCOUNT_ADDRESS> --delinquent
+```
+
+### Deactivate with Seed
+
+```bash
+solana deactivate-stake <STAKE_ACCOUNT_ADDRESS> \
+  --seed "my-stake-seed"
+```
+
+## Withdrawing Stake
+
+### Withdraw from Stake Account
+
+Withdraw inactive stake:
+
+```bash
+solana withdraw-stake <STAKE_ACCOUNT_ADDRESS> <RECIPIENT_ADDRESS> <AMOUNT>
+```
+
+Example:
+```bash
+# Withdraw 50 SOL
+solana withdraw-stake CY6zXcru... 7gJvCYGL... 50
+
+# Withdraw all available
+solana withdraw-stake CY6zXcru... 7gJvCYGL... ALL
+
+# Withdraw only available (deactivated) stake
+solana withdraw-stake CY6zXcru... 7gJvCYGL... AVAILABLE
+```
+
+### Withdraw with Custom Authority
+
+```bash
+solana withdraw-stake <STAKE_ACCOUNT_ADDRESS> <RECIPIENT_ADDRESS> <AMOUNT> \
+  --withdraw-authority ~/withdraw-authority.json
+```
+
+### Withdraw with Custodian
+
+Withdraw from locked stake with custodian permission:
+
+```bash
+solana withdraw-stake <STAKE_ACCOUNT_ADDRESS> <RECIPIENT_ADDRESS> <AMOUNT> \
+  --custodian ~/custodian.json
+```
+
+## Splitting Stake
+
+### Split Stake Account
+
+Split stake into two accounts:
+
+```bash
+solana split-stake <STAKE_ACCOUNT_ADDRESS> <NEW_STAKE_ACCOUNT_KEYPAIR> <AMOUNT>
+```
+
+Example:
+```bash
+# Generate new stake account keypair
+solana-keygen new --outfile ~/new-stake.json
+
+# Split 25 SOL into new account
+solana split-stake CY6zXcru... ~/new-stake.json 25
+```
+
+### Split with Custom Authority
+
+```bash
+solana split-stake <STAKE_ACCOUNT_ADDRESS> <NEW_STAKE_ACCOUNT_KEYPAIR> <AMOUNT> \
+  --stake-authority ~/stake-authority.json
+```
+
+### Split with Seed
+
+```bash
+solana split-stake <STAKE_ACCOUNT_ADDRESS> <NEW_STAKE_ACCOUNT_KEYPAIR> <AMOUNT> \
+  --seed "split-seed"
+```
+
+## Merging Stake
+
+### Merge Stake Accounts
+
+Merge source stake into destination:
+
+```bash
+solana merge-stake <DESTINATION_STAKE_ACCOUNT> <SOURCE_STAKE_ACCOUNT>
+```
+
+Example:
+```bash
+solana merge-stake CY6zXcru... 9pKBwTdH...
+```
+
+**Requirements**:
+- Both accounts must be delegated to the same vote account
+- Both must have the same authorities
+- Source account is closed after merge
+
+### Merge with Custom Authority
+
+```bash
+solana merge-stake <DESTINATION_STAKE_ACCOUNT> <SOURCE_STAKE_ACCOUNT> \
+  --stake-authority ~/stake-authority.json
+```
+
+## Managing Authorities
+
+### Authorize New Staker
+
+Set a new stake authority:
+
+```bash
+solana stake-authorize <STAKE_ACCOUNT_ADDRESS> \
+  --new-stake-authority <NEW_AUTHORITY_PUBKEY>
+```
+
+### Authorize New Withdrawer
+
+Set a new withdraw authority:
+
+```bash
+solana stake-authorize <STAKE_ACCOUNT_ADDRESS> \
+  --new-withdraw-authority <NEW_AUTHORITY_PUBKEY>
+```
+
+### Authorize Both Authorities
+
+```bash
+solana stake-authorize <STAKE_ACCOUNT_ADDRESS> \
+  --new-stake-authority <NEW_STAKE_PUBKEY> \
+  --new-withdraw-authority <NEW_WITHDRAW_PUBKEY>
+```
+
+### Authorize with Current Authority
+
+```bash
+solana stake-authorize <STAKE_ACCOUNT_ADDRESS> \
+  --new-stake-authority <NEW_AUTHORITY_PUBKEY> \
+  --stake-authority ~/current-stake-authority.json
+```
+
+### Authorize with Custodian
+
+```bash
+solana stake-authorize <STAKE_ACCOUNT_ADDRESS> \
+  --new-withdraw-authority <NEW_AUTHORITY_PUBKEY> \
+  --custodian ~/custodian.json
+```
+
+### Authorize Without Wait
+
+Return immediately without waiting for confirmation:
+
+```bash
+solana stake-authorize <STAKE_ACCOUNT_ADDRESS> \
+  --new-stake-authority <NEW_AUTHORITY_PUBKEY> \
+  --no-wait
+```
+
+### Checked Authorization
+
+Verify new authority as a signer:
+
+```bash
+solana stake-authorize-checked <STAKE_ACCOUNT_ADDRESS> \
+  --new-stake-authority ~/new-stake-authority.json
+
+solana stake-authorize-checked <STAKE_ACCOUNT_ADDRESS> \
+  --new-withdraw-authority ~/new-withdraw-authority.json
+```
+
+## Setting Lockup
+
+### Set Lockup Parameters
+
+Modify stake account lockup:
+
+```bash
+# Set lockup epoch
+solana stake-set-lockup <STAKE_ACCOUNT_ADDRESS> \
+  --lockup-epoch 600
+
+# Set lockup date
+solana stake-set-lockup <STAKE_ACCOUNT_ADDRESS> \
+  --lockup-date "2026-01-01T00:00:00Z"
+
+# Set new custodian
+solana stake-set-lockup <STAKE_ACCOUNT_ADDRESS> \
+  --new-custodian <NEW_CUSTODIAN_PUBKEY>
+
+# Combine multiple changes
+solana stake-set-lockup <STAKE_ACCOUNT_ADDRESS> \
+  --lockup-epoch 600 \
+  --new-custodian <NEW_CUSTODIAN_PUBKEY>
+```
+
+### Set Lockup with Custodian
+
+```bash
+solana stake-set-lockup <STAKE_ACCOUNT_ADDRESS> \
+  --lockup-epoch 600 \
+  --custodian ~/custodian.json
+```
+
+### Checked Lockup
+
+Verify new custodian as a signer:
+
+```bash
+solana stake-set-lockup-checked <STAKE_ACCOUNT_ADDRESS> \
+  --new-custodian ~/new-custodian.json
+```
+
+## Stake Account Lifecycle
+
+### Typical Flow
+
+1. **Create**: Generate and fund stake account
+2. **Delegate**: Assign to validator
+3. **Activate**: Automatic (takes 1-2 epochs)
+4. **Earn Rewards**: Automatic while active
+5. **Deactivate**: Start cooldown period
+6. **Withdraw**: Remove SOL after deactivation
+
+### Activation Timeline
+
+```bash
+# Epoch 100: Create and delegate
+solana create-stake-account ~/stake.json 100
+solana delegate-stake <STAKE_ACCOUNT> <VOTE_ACCOUNT>
+
+# Epoch 101: Activating (warming up)
+# Stake begins activating
+
+# Epoch 102+: Active
+# Full stake is active and earning rewards
+```
+
+### Deactivation Timeline
+
+```bash
+# Epoch 200: Deactivate
+solana deactivate-stake <STAKE_ACCOUNT>
+
+# Epoch 201: Deactivating (cooling down)
+# Stake begins deactivating
+
+# Epoch 202+: Inactive
+# Can withdraw deactivated stake
+solana withdraw-stake <STAKE_ACCOUNT> <RECIPIENT> ALL
+```
+
+## Transaction Options
+
+### Fee Payer
+
+Specify who pays transaction fees:
+
+```bash
+solana delegate-stake <STAKE_ACCOUNT> <VOTE_ACCOUNT> \
+  --fee-payer ~/fee-payer.json
+```
+
+### Compute Unit Price
+
+Set priority fees:
+
+```bash
+solana delegate-stake <STAKE_ACCOUNT> <VOTE_ACCOUNT> \
+  --compute-unit-price 1000
+```
+
+### Memo
+
+Add memo to transaction:
+
+```bash
+solana delegate-stake <STAKE_ACCOUNT> <VOTE_ACCOUNT> \
+  --memo "Delegating to my favorite validator"
+```
+
+## Offline Signing
+
+### Sign Only
+
+Generate transaction without broadcasting:
+
+```bash
+solana delegate-stake <STAKE_ACCOUNT> <VOTE_ACCOUNT> \
+  --sign-only \
+  --blockhash <RECENT_BLOCKHASH>
+```
+
+### Submit Pre-Signed
+
+Broadcast a signed transaction:
+
+```bash
+solana delegate-stake <STAKE_ACCOUNT> <VOTE_ACCOUNT> \
+  --signer <SIGNER_PUBKEY>=<SIGNATURE> \
+  --blockhash <BLOCKHASH>
+```
+
+## Best Practices
+
+### Security
+
+1. **Separate Authorities**: Use different keypairs for stake and withdraw
+2. **Cold Storage**: Keep withdraw authority offline
+3. **Lockup**: Use lockup for long-term holdings
+4. **Backup**: Securely backup all authority keypairs
+
+### Operational
+
+1. **Monitor Performance**: Check validator performance before delegating
+2. **Diversify**: Split stake across multiple validators
+3. **Plan Ahead**: Account for activation/deactivation periods
+4. **Test First**: Test on devnet before mainnet
+
+### Cost Optimization
+
+1. **Batch Operations**: Combine multiple operations when possible
+2. **Merge Accounts**: Consolidate to reduce rent costs
+3. **Minimum Delegation**: Check minimum with `solana stake-minimum-delegation`
+4. **Priority Fees**: Use appropriate compute unit prices
+
+## Common Workflows
+
+### Initial Staking
+
+```bash
+# 1. Generate stake account
+solana-keygen new --outfile ~/stake-account.json
+
+# 2. Create and fund
+solana create-stake-account ~/stake-account.json 100
+
+# 3. Find validator
+solana validators --sort stake
+
+# 4. Delegate
+solana delegate-stake <STAKE_ACCOUNT> <VOTE_ACCOUNT>
+
+# 5. Monitor
+solana stake-account <STAKE_ACCOUNT>
+```
+
+### Redelegating
+
+```bash
+# 1. Deactivate current stake
+solana deactivate-stake <STAKE_ACCOUNT>
+
+# 2. Wait for deactivation (1-2 epochs)
+# Check status:
+solana stake-account <STAKE_ACCOUNT>
+
+# 3. Redelegate to new validator
+solana delegate-stake <STAKE_ACCOUNT> <NEW_VOTE_ACCOUNT>
+```
+
+### Emergency Withdrawal
+
+```bash
+# 1. Deactivate immediately
+solana deactivate-stake <STAKE_ACCOUNT>
+
+# 2. Wait for full deactivation
+
+# 3. Withdraw all
+solana withdraw-stake <STAKE_ACCOUNT> <RECIPIENT> ALL
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Program Deployment" icon="code" href="/cli/program-deployment">
+    Deploy and manage on-chain programs
+  </Card>
+  <Card title="Cluster Queries" icon="server" href="/cli/cluster-query">
+    Monitor validators and stake performance
+  </Card>
+</CardGroup>

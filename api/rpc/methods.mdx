@@ -1,0 +1,618 @@
+---
+title: 'RPC Methods'
+description: 'Complete reference for JSON-RPC methods'
+---
+
+## Account Methods
+
+### getAccountInfo
+
+Get information about an account.
+
+**Parameters:**
+
+<ParamField path="pubkey" type="string" required>
+  Account public key as base-58 encoded string
+</ParamField>
+
+<ParamField path="config" type="object">
+  Configuration object
+  
+  **Fields:**
+  - `commitment` (string): Commitment level
+  - `encoding` (string): Data encoding (base58, base64, base64+zstd, jsonParsed)
+  - `dataSlice` (object): Limit returned data with `{offset: number, length: number}`
+  - `minContextSlot` (number): Minimum slot for the request
+</ParamField>
+
+**Response:**
+
+```json
+{
+  "context": {"slot": 12345},
+  "value": {
+    "lamports": 1000000,
+    "owner": "11111111111111111111111111111111",
+    "data": ["<base64-data>", "base64"],
+    "executable": false,
+    "rentEpoch": 361
+  }
+}
+```
+
+**Example:**
+
+```bash
+curl -X POST http://localhost:8899 -H "Content-Type: application/json" -d '
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "getAccountInfo",
+  "params": [
+    "vines1vzrYbzLMRdu58ou5XTby4qAqVRLmqo36NKPTg",
+    {"encoding": "base64"}
+  ]
+}'
+```
+
+---
+
+### getBalance
+
+Get the lamport balance of an account.
+
+**Parameters:**
+
+<ParamField path="pubkey" type="string" required>
+  Account public key as base-58 encoded string
+</ParamField>
+
+<ParamField path="config" type="object">
+  Configuration with `commitment` and `minContextSlot` fields
+</ParamField>
+
+**Response:**
+
+```json
+{
+  "context": {"slot": 12345},
+  "value": 1000000
+}
+```
+
+---
+
+### getMultipleAccounts
+
+Get information for multiple accounts in a single request.
+
+**Parameters:**
+
+<ParamField path="pubkeys" type="string[]" required>
+  Array of account public keys (max 100)
+</ParamField>
+
+<ParamField path="config" type="object">
+  Same configuration options as getAccountInfo
+</ParamField>
+
+**Response:**
+
+```json
+{
+  "context": {"slot": 12345},
+  "value": [
+    {"lamports": 1000000, "owner": "...", "data": [...], ...},
+    null,  // Account not found
+    {"lamports": 5000000, "owner": "...", "data": [...], ...}
+  ]
+}
+```
+
+---
+
+### getProgramAccounts
+
+Get all accounts owned by a program.
+
+**Parameters:**
+
+<ParamField path="programId" type="string" required>
+  Program public key as base-58 encoded string
+</ParamField>
+
+<ParamField path="config" type="object">
+  Configuration object
+  
+  **Fields:**
+  - `commitment`, `encoding`, `dataSlice`, `minContextSlot` (same as getAccountInfo)
+  - `filters` (array): Filter results by account data
+  - `withContext` (bool): Wrap result in RpcResponse
+</ParamField>
+
+**Filters:**
+
+```json
+{
+  "filters": [
+    {"dataSize": 165},  // Filter by data size
+    {"memcmp": {"offset": 0, "bytes": "base58data"}}  // Filter by data content
+  ]
+}
+```
+
+**Response:**
+
+```json
+[
+  {
+    "pubkey": "account-pubkey-1",
+    "account": {"lamports": 1000, "owner": "...", "data": [...], ...}
+  },
+  {
+    "pubkey": "account-pubkey-2",
+    "account": {"lamports": 2000, "owner": "...", "data": [...], ...}
+  }
+]
+```
+
+---
+
+## Block Methods
+
+### getBlock
+
+Get a confirmed block.
+
+**Parameters:**
+
+<ParamField path="slot" type="number" required>
+  Slot number
+</ParamField>
+
+<ParamField path="config" type="object">
+  Configuration object
+  
+  **Fields:**
+  - `encoding` (string): base58, base64, json, jsonParsed
+  - `transactionDetails` (string): full, signatures, none
+  - `rewards` (bool): Include rewards
+  - `commitment` (string): Commitment level (finalized or confirmed only)
+  - `maxSupportedTransactionVersion` (number): Max transaction version
+</ParamField>
+
+**Response:**
+
+```json
+{
+  "blockhash": "...",
+  "previousBlockhash": "...",
+  "parentSlot": 12344,
+  "transactions": [...],
+  "rewards": [...],
+  "blockTime": 1234567890,
+  "blockHeight": 10000
+}
+```
+
+---
+
+### getBlocks
+
+Get a list of confirmed blocks between two slots.
+
+**Parameters:**
+
+<ParamField path="start_slot" type="number" required>
+  Start slot (inclusive)
+</ParamField>
+
+<ParamField path="end_slot" type="number">
+  End slot (inclusive). If not provided, returns up to 500,000 blocks.
+</ParamField>
+
+<ParamField path="config" type="object">
+  Configuration with `commitment` field
+</ParamField>
+
+**Response:**
+
+```json
+[12345, 12346, 12347, 12348]
+```
+
+---
+
+### getBlockHeight
+
+Get the current block height.
+
+**Parameters:**
+
+<ParamField path="config" type="object">
+  Configuration with `commitment` and `minContextSlot`
+</ParamField>
+
+**Response:**
+
+```json
+12345
+```
+
+---
+
+### getBlockTime
+
+Get the estimated production time of a block.
+
+**Parameters:**
+
+<ParamField path="slot" type="number" required>
+  Slot number
+</ParamField>
+
+**Response:**
+
+```json
+1234567890
+```
+
+Unix timestamp or `null` if not available.
+
+---
+
+## Transaction Methods
+
+### sendTransaction
+
+Submit a signed transaction to the cluster.
+
+**Parameters:**
+
+<ParamField path="transaction" type="string" required>
+  Fully-signed transaction as base64 or base58 encoded string
+</ParamField>
+
+<ParamField path="config" type="object">
+  Configuration object
+  
+  **Fields:**
+  - `encoding` (string): base58 or base64
+  - `skipPreflight` (bool): Skip preflight checks
+  - `preflightCommitment` (string): Commitment for preflight
+  - `maxRetries` (number): Max retry attempts
+  - `minContextSlot` (number): Minimum slot for processing
+</ParamField>
+
+**Response:**
+
+```json
+"5VERv8NMvzbJMEkV8xnrLkEaWRtSz9CosKDYjCJjBRnbJLgp8uirBgmQpjKhoR4tjF3ZpRzrFmBV6UjKdiSZkQUW"
+```
+
+Returns the transaction signature.
+
+---
+
+### getTransaction
+
+Get a confirmed transaction.
+
+**Parameters:**
+
+<ParamField path="signature" type="string" required>
+  Transaction signature as base-58 string
+</ParamField>
+
+<ParamField path="config" type="object">
+  Configuration object
+  
+  **Fields:**
+  - `encoding` (string): json, jsonParsed, base64, base58
+  - `commitment` (string): Commitment level
+  - `maxSupportedTransactionVersion` (number): Max version
+</ParamField>
+
+**Response:**
+
+```json
+{
+  "slot": 12345,
+  "transaction": {...},
+  "meta": {
+    "err": null,
+    "fee": 5000,
+    "preBalances": [1000000, 5000000],
+    "postBalances": [995000, 5005000],
+    "logMessages": [...],
+    "computeUnitsConsumed": 12345
+  },
+  "blockTime": 1234567890
+}
+```
+
+---
+
+### getSignatureStatuses
+
+Get statuses for multiple transaction signatures.
+
+**Parameters:**
+
+<ParamField path="signatures" type="string[]" required>
+  Array of transaction signatures (max 256)
+</ParamField>
+
+<ParamField path="config" type="object">
+  Configuration with `searchTransactionHistory` (bool) field
+</ParamField>
+
+**Response:**
+
+```json
+{
+  "context": {"slot": 12345},
+  "value": [
+    {
+      "slot": 12345,
+      "confirmations": 10,
+      "err": null,
+      "confirmationStatus": "confirmed"
+    },
+    null  // Not found
+  ]
+}
+```
+
+---
+
+### simulateTransaction
+
+Simulate a transaction without committing it.
+
+**Parameters:**
+
+<ParamField path="transaction" type="string" required>
+  Transaction as base64 or base58 string
+</ParamField>
+
+<ParamField path="config" type="object">
+  Configuration object
+  
+  **Fields:**
+  - `commitment` (string): Commitment level
+  - `encoding` (string): base58 or base64
+  - `replaceRecentBlockhash` (bool): Replace blockhash with latest
+  - `accounts` (object): Account overrides
+  - `minContextSlot` (number): Minimum slot
+</ParamField>
+
+**Response:**
+
+```json
+{
+  "context": {"slot": 12345},
+  "value": {
+    "err": null,
+    "logs": ["Program log: ..."],
+    "accounts": [...],
+    "unitsConsumed": 12345,
+    "returnData": {"programId": "...", "data": ["...", "base64"]}
+  }
+}
+```
+
+---
+
+## Slot Methods
+
+### getSlot
+
+Get the current slot.
+
+**Parameters:**
+
+<ParamField path="config" type="object">
+  Configuration with `commitment` and `minContextSlot`
+</ParamField>
+
+**Response:**
+
+```json
+12345
+```
+
+---
+
+### getSlotLeader
+
+Get the current slot leader.
+
+**Parameters:**
+
+<ParamField path="config" type="object">
+  Configuration with `commitment` and `minContextSlot`
+</ParamField>
+
+**Response:**
+
+```json
+"ENvAW7JScgYq6o4VZk9wWhzKnKtnEKdsdkjn6dWqTHvx"
+```
+
+---
+
+### getSlotLeaders
+
+Get the slot leaders for a range of slots.
+
+**Parameters:**
+
+<ParamField path="start_slot" type="number" required>
+  Start slot
+</ParamField>
+
+<ParamField path="limit" type="number" required>
+  Number of leaders to return (max 5000)
+</ParamField>
+
+**Response:**
+
+```json
+[
+  "pubkey1",
+  "pubkey2",
+  "pubkey3"
+]
+```
+
+---
+
+## Network Methods
+
+### getVersion
+
+Get the current validator version.
+
+**Response:**
+
+```json
+{
+  "solana-core": "3.0.0",
+  "feature-set": 4215500110
+}
+```
+
+---
+
+### getHealth
+
+Check node health.
+
+**Response:**
+
+- `"ok"` if healthy
+- Error if unhealthy
+
+---
+
+### getClusterNodes
+
+Get information about all nodes in the cluster.
+
+**Response:**
+
+```json
+[
+  {
+    "pubkey": "node-pubkey",
+    "gossip": "127.0.0.1:8001",
+    "tpu": "127.0.0.1:8003",
+    "rpc": "127.0.0.1:8899",
+    "version": "3.0.0",
+    "featureSet": 4215500110
+  }
+]
+```
+
+---
+
+## Utility Methods
+
+### getRecentBlockhash (Deprecated)
+
+Get a recent blockhash. **Deprecated:** Use `getLatestBlockhash` instead.
+
+---
+
+### getLatestBlockhash
+
+Get the latest blockhash.
+
+**Parameters:**
+
+<ParamField path="config" type="object">
+  Configuration with `commitment` and `minContextSlot`
+</ParamField>
+
+**Response:**
+
+```json
+{
+  "context": {"slot": 12345},
+  "value": {
+    "blockhash": "EkSnNWid2cvwEVnVx9aBqawnmiCNiDgp3gUdkDPTKN1N",
+    "lastValidBlockHeight": 123456
+  }
+}
+```
+
+---
+
+### isBlockhashValid
+
+Check if a blockhash is still valid.
+
+**Parameters:**
+
+<ParamField path="blockhash" type="string" required>
+  Blockhash as base-58 string
+</ParamField>
+
+<ParamField path="config" type="object">
+  Configuration with `commitment` and `minContextSlot`
+</ParamField>
+
+**Response:**
+
+```json
+{
+  "context": {"slot": 12345},
+  "value": true
+}
+```
+
+---
+
+### minimumLedgerSlot
+
+Get the minimum slot available in the ledger.
+
+**Response:**
+
+```json
+1234
+```
+
+---
+
+### getEpochInfo
+
+Get information about the current epoch.
+
+**Parameters:**
+
+<ParamField path="config" type="object">
+  Configuration with `commitment` and `minContextSlot`
+</ParamField>
+
+**Response:**
+
+```json
+{
+  "absoluteSlot": 123456,
+  "blockHeight": 12345,
+  "epoch": 100,
+  "slotIndex": 1234,
+  "slotsInEpoch": 432000,
+  "transactionCount": 987654321
+}
+```
+
+---
+
+## See Also
+
+- [WebSocket API](/api/rpc/websockets) - Real-time subscriptions
+- [RPC Overview](/api/rpc/overview) - Configuration and authentication
+- [CLI Tools](/cli/cluster-query) - Query cluster with CLI

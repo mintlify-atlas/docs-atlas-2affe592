@@ -1,0 +1,349 @@
+---
+title: Consensus Mechanism
+description: Proof of History and Tower BFT consensus in Harmonic Salsa
+---
+
+Harmonic Salsa uses a two-layer consensus mechanism: Proof of History (PoH) for cryptographic timestamping and Tower BFT for fork selection and finality.
+
+## Proof of History (PoH)
+
+Proof of History provides a cryptographic clock that proves the passage of time between events.
+
+### PoH Overview
+
+PoH is a sequential hash chain where each hash proves time has passed:
+
+```
+hash0 = hash(data)
+hash1 = hash(hash0)
+hash2 = hash(hash1)
+...
+```
+
+Each hash proves that time elapsed between the previous hash and current hash.
+
+### PoH Service
+
+The PoH service (~/workspace/source/poh/src/poh_service.rs) runs continuously:
+
+- Generates hashes in tight loop
+- Records transactions as PoH "mixins"
+- Produces ticks at regular intervals
+- Provides entries for block production
+
+### PoH Recorder
+
+The PohRecorder (~/workspace/source/poh/src/poh_recorder.rs:1) coordinates between PoH and banking:
+
+```rust
+/// PohRecorder synchronizes with Proof of History.
+/// It synchronizes PoH, bank's register_tick and the ledger.
+///
+/// PohRecorder will send ticks or entries to a WorkingBank,
+/// if the current range of ticks is within the specified
+/// WorkingBank range.
+```
+
+### Working Bank
+
+```rust
+pub struct WorkingBank {
+    pub bank: BankWithScheduler,
+    pub start: Arc<Instant>,
+    pub min_tick_height: u64,
+    pub max_tick_height: u64,
+}
+```
+
+The WorkingBank tracks:
+
+- Current bank being filled with transactions
+- Min/max tick heights for this slot
+- Start time for performance tracking
+
+### Recording Transactions
+
+Transactions recorded into PoH:
+
+```rust
+pub struct Record {
+    pub mixins: Vec<Hash>,
+    pub transaction_batches: Vec<Vec<VersionedTransaction>>,
+    pub bank_id: BankId,
+    pub harmonic: bool, // Harmonic block indicator
+}
+```
+
+Process:
+
+1. Banking stage processes transaction batch
+2. Transaction hashes mixed into PoH
+3. PoH hash recorded with transactions
+4. Entry created with PoH hash + transactions
+5. Entry sent to blockstore
+
+### PoH Controller
+
+The PohController (~/workspace/source/poh/src/poh_controller.rs) manages:
+
+- Leader schedule integration
+- Tick and slot timing
+- Grace period handling
+- Slot completion signaling
+
+## Tower BFT Consensus
+
+Tower BFT is the fork selection and voting consensus mechanism.
+
+### Tower Structure
+
+The consensus module (~/workspace/source/core/src/consensus.rs:1) implements Tower BFT:
+
+```rust
+/// Tower BFT consensus algorithm
+/// Uses vote lockouts to achieve finality
+/// Validators vote on forks they believe are correct
+/// Votes create exponentially-increasing lockouts
+```
+
+### Vote State
+
+Each validator maintains vote state:
+
+```rust
+pub enum TowerVersions {
+    V1_7_14(Tower1_7_14),
+    V1_14_11(Tower1_14_11),
+    Current(Tower),
+}
+```
+
+Tower tracks:
+
+- **Vote History** - Recently voted slots
+- **Lockouts** - Commitment to voted forks
+- **Root** - Last finalized slot
+- **Last Vote** - Most recent vote slot
+
+### Fork Choice
+
+The HeaviestSubtreeForkChoice (~/workspace/source/core/src/consensus/heaviest_subtree_fork_choice.rs) selects the best fork:
+
+#### Selection Criteria
+
+1. **Stake Weight** - Total stake voting for fork
+2. **Lockout Intervals** - Validator commitments
+3. **Optimistic Confirmation** - 2/3+ stake threshold
+4. **Switch Threshold** - Required stake to change forks
+
+### Switch Fork Decision
+
+```rust
+pub enum SwitchForkDecision {
+    SwitchProof(Hash),
+    SameFork,
+    FailedSwitchThreshold(u64, u64),
+    FailedSwitchDuplicateRollback(Slot),
+}
+```
+
+Decisions:
+
+- **SameFork** - Continue on current fork
+- **SwitchProof** - Switch to different fork with proof
+- **FailedSwitchThreshold** - Insufficient stake to switch
+- **FailedSwitchDuplicateRollback** - Duplicate detected
+
+### Threshold Decision
+
+```rust
+pub enum ThresholdDecision {
+    PassedThreshold,
+    FailedThreshold(u64, u64), // vote depth, observed stake
+}
+```
+
+Votes require:
+
+- **Shallow Threshold** - 4 confirmations
+- **Deep Threshold** - 8 confirmations
+- **Switch Threshold** - 38% of stake
+
+### Vote Processing
+
+Votes processed in cluster_info_vote_listener (~/workspace/source/core/src/cluster_info_vote_listener.rs):
+
+1. **Receive Votes** - From gossip network
+2. **Validate Votes** - Check signature and format
+3. **Update Vote State** - Add to vote tracker
+4. **Update Fork Weight** - Recalculate stake weight
+5. **Trigger Optimistic Confirmation** - Check thresholds
+
+### Progress Map
+
+The ProgressMap (~/workspace/source/core/src/consensus/progress_map.rs) tracks fork progress:
+
+```rust
+pub struct ProgressMap {
+    // For each slot:
+    // - Vote accounts that voted
+    // - Stake weight accumulated
+    // - Propagated status
+    // - Is confirmed optimistically
+}
+```
+
+### Lockout Intervals
+
+```rust
+pub struct LockoutInterval {
+    // Voter pubkey
+    // Start slot of lockout
+    // End slot of lockout
+}
+```
+
+Lockouts:
+
+- Created when validator votes
+- Duration doubles with each vote
+- Prevents switching to conflicting forks
+- Expires after sufficient confirmations
+
+## Voting Process
+
+### Vote Generation
+
+The voting_service (~/workspace/source/core/src/voting_service.rs) generates votes:
+
+1. **Evaluate Fork** - Check if should vote
+2. **Create Vote** - Build vote transaction
+3. **Switch Decision** - Determine if switching forks
+4. **Submit Vote** - Send to TPU
+
+### Vote Instruction
+
+```rust
+pub fn to_vote_instruction(
+    &self,
+    vote: VoteTransaction,
+    vote_account_pubkey: &Pubkey,
+    authorized_voter_pubkey: &Pubkey,
+) -> Option<Instruction>
+```
+
+Vote types:
+
+- **Vote** - Standard vote on slot
+- **VoteStateUpdate** - Compact vote update
+- **TowerSync** - Full tower state sync
+
+### Vote Stake Tracker
+
+The vote_stake_tracker (~/workspace/source/core/src/consensus/vote_stake_tracker.rs) maintains:
+
+- Stake weight per slot
+- Validator votes received
+- Optimistic confirmation status
+- Rooting thresholds
+
+## Replay Stage
+
+The replay_stage (~/workspace/source/core/src/replay_stage.rs) coordinates consensus:
+
+### Replay Process
+
+1. **Select Fork** - Use fork choice algorithm
+2. **Replay Transactions** - Execute block contents
+3. **Verify Results** - Compare against block hash
+4. **Update Progress** - Mark slot as replayed
+5. **Generate Vote** - Vote on confirmed slot
+6. **Update Root** - Move root forward if finalized
+
+### Frozen Bank Evaluation
+
+Once bank frozen:
+
+1. **Compute Hash** - Calculate accounts hash
+2. **Compare Hash** - Verify matches expected
+3. **Record Vote** - Add vote to progress map
+4. **Check Thresholds** - Evaluate confirmation
+5. **Update Tower** - Add slot to vote history
+
+## Optimistic Confirmation
+
+Slots optimistically confirmed when:
+
+- 2/3+ of stake has voted
+- Vote observed on fork
+- No conflicting votes
+- Within lockout period
+
+Optimistic confirmation enables:
+
+- Fast transaction confirmation
+- Low latency finality signaling
+- Improved user experience
+
+## Finalization
+
+Slots finalized (rooted) when:
+
+- 31 confirmations deep
+- Sufficient lockouts created
+- Supermajority commitment
+- No conflicting forks viable
+
+Rooting triggers:
+
+- Cleanup of old fork state
+- Snapshot creation
+- Ledger compaction
+- Account pruning
+
+## Duplicate Detection
+
+Consensus monitors for duplicates:
+
+- **Duplicate Blocks** - Multiple blocks for same slot
+- **Duplicate Votes** - Conflicting votes from validator
+- **Duplicate Shreds** - Conflicting shreds for slot
+
+Duplicates trigger:
+
+- Slashing (if enabled)
+- Fork selection impact
+- Optimistic confirmation block
+
+## Vote State Updates
+
+Compact vote updates reduce bandwidth:
+
+- Send only vote range instead of full history
+- Tower sync for full state
+- Incremental updates for normal votes
+
+## Commitment Service
+
+The commitment_service (~/workspace/source/core/src/commitment_service.rs) tracks:
+
+- **Processed** - Executed but not confirmed
+- **Confirmed** - Optimistically confirmed
+- **Finalized** - Rooted and permanent
+
+Clients query commitment level for transactions.
+
+## Performance Characteristics
+
+- **Fast Confirmation** - 400-600ms for optimistic
+- **Finality** - 12-13 seconds for root
+- **Fork Recovery** - Automatic rollback on invalid fork
+- **Network Partition** - Recovers with majority stake
+
+## Key Files
+
+- **Consensus**: ~/workspace/source/core/src/consensus.rs
+- **PoH Recorder**: ~/workspace/source/poh/src/poh_recorder.rs
+- **PoH Service**: ~/workspace/source/poh/src/poh_service.rs
+- **Replay Stage**: ~/workspace/source/core/src/replay_stage.rs
+- **Voting Service**: ~/workspace/source/core/src/voting_service.rs

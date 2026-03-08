@@ -1,0 +1,454 @@
+---
+title: Production Configuration
+description: Configuration reference for Harmonic Salsa validators
+---
+
+# Production Configuration
+
+This guide details the configuration options available for Harmonic Salsa validators in production environments.
+
+## Environment Variables
+
+### Critical Environment Variables
+
+**RUST_LOG:**
+Controls log verbosity using the `env_logger` crate syntax.
+```bash
+export RUST_LOG=info
+# Or more specific:
+export RUST_LOG=solana=info,solana_runtime::bank=debug
+```
+
+**SOLANA_METRICS_CONFIG:**
+Configures metrics reporting to InfluxDB.
+```bash
+export SOLANA_METRICS_CONFIG="host=<influx-host>:<port>,db=<database>,u=<username>,p=<password>"
+```
+
+**PATH:**
+Ensure Solana binaries are in PATH:
+```bash
+export PATH=/home/sol/.local/share/solana/install/active_release/bin:$PATH
+```
+
+### Optional Environment Variables
+
+**SOLANA_BANKING_THREADS:**
+DEPRECATED in v3.0+. Use `--block-production-num-workers` instead.
+
+## Configuration Files
+
+### Validator Keypairs
+
+**Identity Keypair** (`validator-keypair.json`):
+- Location: `/home/sol/validator-keypair.json`
+- Purpose: Uniquely identifies your validator
+- Security: Backup securely, required for validator operations
+- Permissions: `chmod 600`
+
+**Vote Account Keypair** (`vote-account-keypair.json`):
+- Location: `/home/sol/vote-account-keypair.json`
+- Purpose: Identifies the vote account
+- Note: Only public key is needed after account creation
+- Permissions: `chmod 600`
+
+**Authorized Withdrawer Keypair:**
+- Location: **DO NOT store on validator**
+- Purpose: Ultimate authority over vote account
+- Security: Store in hardware wallet, paper wallet, or secure offline location
+- Critical: Loss of this key means permanent loss of vote account control
+
+### Solana CLI Configuration
+
+**Location:** `~/.config/solana/cli/config.yml`
+
+**Configure via CLI:**
+```bash
+# Set cluster
+solana config set --url https://api.mainnet-beta.solana.com
+
+# Set keypair
+solana config set --keypair /home/sol/validator-keypair.json
+
+# Verify configuration
+solana config get
+```
+
+## Validator Command-Line Arguments
+
+### Required Arguments
+
+**--identity `<PATH>`:**
+Path to validator identity keypair.
+```bash
+--identity /home/sol/validator-keypair.json
+```
+
+**--vote-account `<PATH>`:**
+Path to vote account keypair.
+```bash
+--vote-account /home/sol/vote-account-keypair.json
+```
+
+**--ledger `<PATH>`:**
+Ledger directory location.
+```bash
+--ledger /mnt/ledger
+```
+
+**--entrypoint `<HOST:PORT>`:**
+Cluster entrypoint for bootstrapping.
+```bash
+--entrypoint entrypoint.mainnet-beta.solana.com:8001
+```
+
+### Network Arguments
+
+**--dynamic-port-range `<MIN-MAX>`:**
+Port range for validator networking (minimum 25 ports recommended).
+```bash
+--dynamic-port-range 8000-8020
+```
+
+**--rpc-port `<PORT>`:**
+RPC server port (default: 8899).
+```bash
+--rpc-port 8899
+```
+
+**--bind-address `<IP>`:**
+IP address to bind gossip and services.
+```bash
+--bind-address 0.0.0.0
+```
+
+**--public-rpc-address `<IP:PORT>`:**
+Advertised RPC address for public access.
+```bash
+**--public-rpc-address `<your-public-ip>`:8899
+```
+
+### Trust and Security Arguments
+
+**--known-validator `<PUBKEY>`:**
+Trusted validators for snapshot downloads (highly recommended).
+```bash
+--known-validator 7Np41oeYqPefeNQEHSv1UDhYrehxin3NStELsSKCT4K2 \
+--known-validator GdnSyH3YtwcxFvQrVVJMm1JhTS4QVX7MFsX56uJLUfiZ
+```
+
+**--only-known-rpc:**
+Only download genesis and snapshots from known validators.
+```bash
+--only-known-rpc
+```
+
+**--expected-genesis-hash `<HASH>`:**
+Expected genesis hash to prevent wrong cluster joins.
+```bash
+--expected-genesis-hash 5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d
+```
+
+### Storage Arguments
+
+**--accounts `<PATH>`:**
+Accounts database location (separate high-IOPS drive recommended).
+```bash
+--accounts /mnt/accounts
+```
+
+**--limit-ledger-size [SHRED_COUNT]:**
+Limit ledger disk usage (default targets ~500GB blockstore).
+```bash
+--limit-ledger-size
+```
+
+**--accounts-db-skip-shrink:**
+Disable account storage shrinking (reduces I/O but increases disk usage).
+```bash
+--accounts-db-skip-shrink
+```
+
+### Snapshot Configuration
+
+**--snapshots `<PATH>`:**
+Snapshot storage location (default: ledger directory).
+```bash
+--snapshots /mnt/ledger/snapshots
+```
+
+**--full-snapshot-interval-slots `<SLOTS>`:**
+Full snapshot generation interval (default: 100,000 slots in v3.0+).
+```bash
+--full-snapshot-interval-slots 100000
+```
+
+**--incremental-snapshot-interval-slots `<SLOTS>`:**
+Incremental snapshot interval (default: 10,000 slots).
+```bash
+--incremental-snapshot-interval-slots 10000
+```
+
+**--no-snapshots:**
+Disable snapshot generation.
+```bash
+--no-snapshots
+```
+
+**--snapshot-archive-format `<FORMAT>`:**
+Snapshot compression format (zstd, bz2, tar, none).
+```bash
+--snapshot-archive-format zstd
+```
+
+**--snapshot-zstd-compression-level `<LEVEL>`:**
+Compression level for zstd (1-21, default varies).
+```bash
+--snapshot-zstd-compression-level 10
+```
+
+### RPC Configuration
+
+**--enable-rpc-transaction-history:**
+Enable historical transaction info storage (increases disk usage).
+```bash
+--enable-rpc-transaction-history
+```
+
+**--enable-extended-tx-metadata-storage:**
+Store CPI instructions, logs, and return data (requires transaction history).
+```bash
+--enable-extended-tx-metadata-storage
+```
+
+**--rpc-threads `<COUNT>`:**
+Number of RPC request threads (default: CPU count).
+```bash
+--rpc-threads 16
+```
+
+**--rpc-blocking-threads `<COUNT>`:**
+Threads for CPU-intensive RPC requests (default: max(1, CPU count / 4)).
+```bash
+--rpc-blocking-threads 4
+```
+
+**--rpc-max-request-body-size `<BYTES>`:**
+Maximum RPC request body size.
+```bash
+--rpc-max-request-body-size 52428800
+```
+
+**--full-rpc-api:**
+Expose full RPC API (required for public RPC nodes).
+```bash
+--full-rpc-api
+```
+
+**--health-check-slot-distance `<SLOTS>`:**
+Slot distance for health check (default: 128 in v2.0+).
+```bash
+--health-check-slot-distance 128
+```
+
+### Performance Tuning Arguments
+
+**--block-production-method `<METHOD>`:**
+Block production scheduler (default: `central-scheduler-greedy` in v2.2+).
+```bash
+--block-production-method central-scheduler-greedy
+```
+
+**--block-verification-method `<METHOD>`:**
+Block verification method (default: `unified-scheduler` in v2.1+).
+```bash
+--block-verification-method unified-scheduler
+```
+
+**--replay-forks-threads `<COUNT>`:**
+Threads for fork replay (default: 4).
+```bash
+--replay-forks-threads 4
+```
+
+**--accounts-db-background-threads `<COUNT>`:**
+Background threads for accounts DB operations.
+```bash
+--accounts-db-background-threads 8
+```
+
+**--accounts-db-read-cache-limit `<SIZE>`:**
+Accounts read cache size limit.
+```bash
+--accounts-db-read-cache-limit 100000000
+```
+
+### Logging Arguments
+
+**--log `<PATH>`:**
+Log file path (use `-` for stdout).
+```bash
+--log /home/sol/agave-validator.log
+```
+
+**--log-messages-bytes-limit `<BYTES>`:**
+Limit transaction log message storage.
+```bash
+--log-messages-bytes-limit 10000
+```
+
+### Monitoring Arguments
+
+**--enable-rpc-bigtable-ledger-storage:**
+Use BigTable for historical ledger data.
+```bash
+--enable-rpc-bigtable-ledger-storage
+```
+
+**--account-index `<INDEX_TYPE>`:**
+Enable account indexing for RPC performance.
+```bash
+--account-index program-id \
+--account-index spl-token-owner \
+--account-index spl-token-mint
+```
+
+### Recovery Arguments
+
+**--wal-recovery-mode `<MODE>`:**
+RocksDB WAL recovery mode (options: `tolerate_corrupted_tail_records`, `skip_any_corrupted_record`).
+```bash
+--wal-recovery-mode skip_any_corrupted_record
+```
+
+**--use-snapshot-archives-at-startup `<WHEN>`:**
+When to use snapshot archives at startup (default: `when-newest`).
+```bash
+--use-snapshot-archives-at-startup when-newest
+```
+
+## Tuning Parameters
+
+### CPU Optimization
+
+**Performance Governor:**
+```bash
+echo performance | sudo tee /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor
+```
+
+**Clock Speed:**
+Ensure base clock is 2.8GHz+ for proper PoH performance.
+
+### Memory Settings
+
+**Accounts Index:**
+By default, accounts index is kept entirely in memory (v3.1+).
+
+**Read Cache:**
+Tune `--accounts-db-read-cache-limit` based on available RAM.
+
+### Network Tuning
+
+**QUIC Connections:**
+- Default max unstaked connections: 500
+- Default max staked connections: 2000
+- Configure via `--max-unstaked-connections` and `--max-staked-connections`
+
+**UDP Buffers:**
+Configured via sysctl (see deployment guide).
+
+### Storage I/O
+
+**Mount Options:**
+Use `noatime` in fstab to reduce write operations.
+
+**Separate Drives:**
+Always use separate high-performance drives for ledger and accounts.
+
+## Security Settings
+
+### Key Management
+
+**File Permissions:**
+```bash
+chmod 600 /home/sol/validator-keypair.json
+chmod 600 /home/sol/vote-account-keypair.json
+chown sol:sol /home/sol/*-keypair.json
+```
+
+### Network Security
+
+**Firewall:**
+See deployment guide for UFW configuration.
+
+**SSH Hardening:**
+- Use key-based authentication only
+- Disable password authentication
+- Install fail2ban
+
+### Process Isolation
+
+**Run as Non-Root:**
+Always run validator as dedicated `sol` user, never as root.
+
+**Systemd Hardening:**
+```ini
+# Optional hardening in systemd service
+NoNewPrivileges=true
+PrivateTmp=true
+```
+
+## Configuration Examples
+
+### Mainnet Validator
+
+```bash
+exec agave-validator \
+    --identity /home/sol/validator-keypair.json \
+    --vote-account /home/sol/vote-account-keypair.json \
+    --known-validator 7Np41oeYqPefeNQEHSv1UDhYrehxin3NStELsSKCT4K2 \
+    --known-validator GdnSyH3YtwcxFvQrVVJMm1JhTS4QVX7MFsX56uJLUfiZ \
+    --only-known-rpc \
+    --log /home/sol/agave-validator.log \
+    --ledger /mnt/ledger \
+    --accounts /mnt/accounts \
+    --rpc-port 8899 \
+    --dynamic-port-range 8000-8020 \
+    --entrypoint entrypoint.mainnet-beta.solana.com:8001 \
+    --entrypoint entrypoint2.mainnet-beta.solana.com:8001 \
+    --entrypoint entrypoint3.mainnet-beta.solana.com:8001 \
+    --expected-genesis-hash 5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d \
+    --wal-recovery-mode skip_any_corrupted_record \
+    --limit-ledger-size \
+    --full-snapshot-interval-slots 100000 \
+    --incremental-snapshot-interval-slots 10000
+```
+
+### RPC Node Configuration
+
+```bash
+exec agave-validator \
+    --identity /home/sol/validator-keypair.json \
+    --vote-account /home/sol/vote-account-keypair.json \
+    --known-validator 7Np41oeYqPefeNQEHSv1UDhYrehxin3NStELsSKCT4K2 \
+    --only-known-rpc \
+    --log /home/sol/agave-validator.log \
+    --ledger /mnt/ledger \
+    --accounts /mnt/accounts \
+    --rpc-port 8899 \
+    --full-rpc-api \
+    --enable-rpc-transaction-history \
+    --enable-extended-tx-metadata-storage \
+    --account-index program-id \
+    --account-index spl-token-owner \
+    --account-index spl-token-mint \
+    --rpc-threads 16 \
+    --rpc-blocking-threads 4 \
+    --dynamic-port-range 8000-8020 \
+    --entrypoint entrypoint.mainnet-beta.solana.com:8001 \
+    --expected-genesis-hash 5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d \
+    --wal-recovery-mode skip_any_corrupted_record \
+    --limit-ledger-size
+```
+
+Refer to `agave-validator --help` for the complete list of configuration options.

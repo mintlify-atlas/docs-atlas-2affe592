@@ -1,0 +1,515 @@
+---
+title: Validator Monitoring
+description: Monitor your Harmonic Salsa validator's health and performance
+---
+
+# Validator Monitoring
+
+Proper monitoring is essential for maintaining a healthy validator. This guide covers various monitoring approaches and tools.
+
+## Key Metrics to Monitor
+
+### Validator Health
+
+- **Catchup Status**: Is the validator caught up with the network?
+- **Vote Credits**: Are votes being submitted and credited?
+- **Block Production**: Is the validator producing blocks during leader slots?
+- **Delinquency**: Is the validator marked as delinquent?
+- **Skip Rate**: What percentage of leader slots are being skipped?
+
+### System Resources
+
+- **CPU Usage**: Should stay below 80-90%
+- **Memory Usage**: Monitor for leaks or excessive consumption
+- **Disk I/O**: Watch for bottlenecks
+- **Network Bandwidth**: Track inbound/outbound traffic
+- **Disk Space**: Ensure adequate free space
+
+### Network Metrics
+
+- **Gossip Connectivity**: Number of peers
+- **RPC Requests**: Request rate and latency (if running RPC)
+- **Transaction Processing**: TPS and queue depth
+
+## Command-Line Monitoring
+
+### Catchup Status
+
+Monitor if your validator is caught up:
+
+```bash
+solana catchup $(solana-keygen pubkey ~/validator-keypair.json)
+```
+
+Expected output when caught up:
+```
+Slot: 123456789 (100.00% complete)
+Your validator is caught up.
+```
+
+### Vote Account Monitoring
+
+Check vote credits and status:
+
+```bash
+solana vote-account $(solana-keygen pubkey ~/vote-account-keypair.json)
+```
+
+Key fields to watch:
+- `Credits`: Should increase every epoch
+- `Commission`: Your commission rate
+- `Last Vote`: Should be recent
+- `Root Slot`: Should advance regularly
+
+### Block Production
+
+View block production statistics:
+
+```bash
+solana block-production
+```
+
+Filter to your validator:
+
+```bash
+solana block-production | grep $(solana-keygen pubkey ~/validator-keypair.json)
+```
+
+Look for:
+- **Leader Slots**: Number of slots you're scheduled to produce
+- **Blocks Produced**: Actual blocks produced
+- **Skip Rate**: Should be below 5%
+
+### Gossip Network
+
+View your validator in gossip:
+
+```bash
+solana gossip | grep $(solana-keygen pubkey ~/validator-keypair.json)
+```
+
+Check total peer count:
+
+```bash
+solana gossip | wc -l
+```
+
+### Validator Monitor Command
+
+Continuous monitoring:
+
+```bash
+agave-validator monitor
+```
+
+This displays real-time stats including:
+- Slot and epoch
+- Transaction count
+- Shred insert rate
+- Vote status
+
+## Health Check Endpoints
+
+### RPC Health
+
+The validator exposes a health endpoint when RPC is enabled:
+
+```bash
+curl -X POST -H "Content-Type: application/json" -d '{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "getHealth"
+}' http://localhost:8899
+```
+
+Response:
+```json
+{"jsonrpc":"2.0","result":"ok","id":1}
+```
+
+Possible responses:
+- `"ok"`: Node is healthy
+- `{"error": ...}`: Node is unhealthy (with details)
+
+### Slot Monitoring
+
+Get current slot:
+
+```bash
+curl -X POST -H "Content-Type: application/json" -d '{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "getSlot"
+}' http://localhost:8899
+```
+
+### Version Check
+
+Check validator version:
+
+```bash
+curl -X POST -H "Content-Type: application/json" -d '{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "getVersion"
+}' http://localhost:8899
+```
+
+## Metrics Exporters
+
+The validator exposes metrics in various formats.
+
+### InfluxDB Metrics
+
+The validator can send metrics to InfluxDB. Configure using environment variables:
+
+```bash
+export SOLANA_METRICS_CONFIG="host=http://influxdb:8086,db=validator,u=admin,p=password"
+```
+
+Metrics include:
+- Banking stage statistics
+- Vote submission metrics
+- Shred processing rates
+- Replay stage performance
+- Account database statistics
+
+### Prometheus Metrics
+
+While not built-in, you can parse log output or use custom exporters to expose Prometheus metrics.
+
+## Automated Monitoring Scripts
+
+### Basic Health Check Script
+
+Create `validator-health-check.sh`:
+
+```bash
+#!/bin/bash
+
+VALIDATOR_PUBKEY=$(solana-keygen pubkey ~/validator-keypair.json)
+
+# Check if process is running
+if ! pgrep -x "agave-validator" > /dev/null; then
+    echo "CRITICAL: Validator process not running"
+    exit 2
+fi
+
+# Check catchup status
+CATCHUP=$(solana catchup $VALIDATOR_PUBKEY 2>&1)
+
+if echo "$CATCHUP" | grep -q "caught up"; then
+    echo "OK: Validator is caught up"
+    exit 0
+elif echo "$CATCHUP" | grep -q "complete"; then
+    PERCENTAGE=$(echo "$CATCHUP" | grep -oP '\d+\.\d+(?=% complete)')
+    echo "WARNING: Validator catching up ($PERCENTAGE%)"
+    exit 1
+else
+    echo "CRITICAL: Cannot determine catchup status"
+    exit 2
+fi
+```
+
+Make it executable:
+
+```bash
+chmod +x validator-health-check.sh
+```
+
+Run periodically via cron:
+
+```bash
+*/5 * * * * /home/sol/validator-health-check.sh >> /var/log/validator-health.log 2>&1
+```
+
+### Vote Credits Monitor
+
+Create `vote-credits-monitor.sh`:
+
+```bash
+#!/bin/bash
+
+VOTE_ACCOUNT=$(solana-keygen pubkey ~/vote-account-keypair.json)
+CREDITS=$(solana vote-account $VOTE_ACCOUNT 2>/dev/null | grep "Credits" | awk '{print $2}')
+
+echo "$(date): Vote Credits: $CREDITS" >> /var/log/vote-credits.log
+
+# Store in file for comparison
+PREV_CREDITS=$(cat /tmp/prev-credits.txt 2>/dev/null || echo 0)
+echo $CREDITS > /tmp/prev-credits.txt
+
+# Alert if credits haven't increased in last hour
+if [ $CREDITS -eq $PREV_CREDITS ]; then
+    echo "WARNING: Vote credits not increasing!"
+fi
+```
+
+## System Resource Monitoring
+
+### CPU Monitoring
+
+Monitor validator CPU usage:
+
+```bash
+top -b -n 1 -p $(pgrep agave-validator) | tail -1
+```
+
+Or with continuous updates:
+
+```bash
+top -p $(pgrep agave-validator)
+```
+
+### Memory Monitoring
+
+Check memory usage:
+
+```bash
+ps aux | grep agave-validator | grep -v grep | awk '{print $6}'
+```
+
+Detailed memory breakdown:
+
+```bash
+pmap -x $(pgrep agave-validator) | tail -1
+```
+
+### Disk Space Monitoring
+
+Monitor ledger directory:
+
+```bash
+du -sh ~/validator-ledger
+```
+
+Monitor all validator-related directories:
+
+```bash
+df -h | grep -E '(validator|nvme)'
+```
+
+### Disk I/O Monitoring
+
+Install `iotop`:
+
+```bash
+sudo apt install iotop
+```
+
+Monitor disk I/O:
+
+```bash
+sudo iotop -p $(pgrep agave-validator)
+```
+
+Or use `iostat`:
+
+```bash
+iostat -x 5
+```
+
+### Network Monitoring
+
+Monitor network connections:
+
+```bash
+ss -s
+```
+
+Monitor bandwidth:
+
+```bash
+iftop -i eth0
+```
+
+Or use `nload`:
+
+```bash
+nload eth0
+```
+
+## Log Analysis
+
+### Important Log Patterns
+
+Monitor for errors:
+
+```bash
+sudo journalctl -u agave-validator -f | grep ERROR
+```
+
+Monitor for warnings:
+
+```bash
+sudo journalctl -u agave-validator -f | grep WARN
+```
+
+Monitor vote activity:
+
+```bash
+sudo journalctl -u agave-validator -f | grep "vote"
+```
+
+### Performance Metrics in Logs
+
+Search for specific metrics:
+
+```bash
+# Banking stage metrics
+sudo journalctl -u agave-validator | grep "banking_stage"
+
+# Replay performance
+sudo journalctl -u agave-validator | grep "replay_stage"
+
+# Shred processing
+sudo journalctl -u agave-validator | grep "shred"
+```
+
+## Alert Configuration
+
+### Email Alerts
+
+Install `mailutils`:
+
+```bash
+sudo apt install mailutils
+```
+
+Create alert script:
+
+```bash
+#!/bin/bash
+
+VALIDATOR_PUBKEY=$(solana-keygen pubkey ~/validator-keypair.json)
+CATCHUP=$(solana catchup $VALIDATOR_PUBKEY 2>&1)
+
+if ! echo "$CATCHUP" | grep -q "caught up"; then
+    echo "Validator is not caught up: $CATCHUP" | mail -s "Validator Alert" admin@example.com
+fi
+```
+
+### Slack/Discord Webhooks
+
+Send alerts to Slack:
+
+```bash
+#!/bin/bash
+
+WEBHOOK_URL="https://hooks.slack.com/services/YOUR/WEBHOOK/URL"
+MESSAGE="Validator alert: Check validator status"
+
+curl -X POST -H 'Content-type: application/json' \
+  --data "{\"text\":\"$MESSAGE\"}" \
+  $WEBHOOK_URL
+```
+
+## Third-Party Monitoring Services
+
+### Solana Beach
+
+Monitor your validator on [Solana Beach](https://solanabeach.io/):
+
+1. Search for your validator identity
+2. Add to favorites
+3. Enable notifications
+
+### Stakewiz
+
+Track performance on [Stakewiz](https://stakewiz.com/):
+
+- View historical performance
+- Compare with other validators
+- Monitor skip rate trends
+
+### Validators.app
+
+Monitor on [Validators.app](https://www.validators.app/):
+
+- Real-time performance metrics
+- Cluster-wide statistics
+- Alert configurations
+
+## Monitoring Dashboard
+
+### Grafana + Prometheus Setup
+
+For comprehensive monitoring, set up Grafana with Prometheus:
+
+1. **Install Prometheus**:
+   ```bash
+   sudo apt install prometheus
+   ```
+
+2. **Install Grafana**:
+   ```bash
+   sudo apt install grafana
+   ```
+
+3. **Configure node_exporter** for system metrics:
+   ```bash
+   sudo apt install prometheus-node-exporter
+   ```
+
+4. **Create custom exporter** for validator metrics
+
+5. **Import Solana Grafana dashboards** from the community
+
+### Key Dashboard Panels
+
+- Validator catchup status
+- Vote credits over time
+- Block production rate
+- Skip rate
+- System resource utilization
+- Network connections
+- Ledger size growth
+- Transaction processing rate
+
+## Performance Benchmarking
+
+### Baseline Metrics
+
+Establish baseline performance:
+
+```bash
+# CPU performance
+lscpu
+
+# Disk performance
+sudo fio --name=random-read --ioengine=libaio --iodepth=32 --rw=randread --bs=4k --direct=1 --size=1G --numjobs=4 --runtime=60 --group_reporting
+
+# Network performance
+iperf3 -c <peer-validator-ip>
+```
+
+## Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Monitor Continuously" icon="clock">
+    Set up automated monitoring that runs 24/7 and alerts on issues.
+  </Card>
+  <Card title="Track Trends" icon="chart-line">
+    Monitor trends over time, not just current values.
+  </Card>
+  <Card title="Set Thresholds" icon="bell">
+    Configure alerts with appropriate thresholds to avoid alert fatigue.
+  </Card>
+  <Card title="Document Baselines" icon="book">
+    Record normal operating metrics for comparison.
+  </Card>
+</CardGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Operations" icon="play" href="/validator/operations">
+    Learn about operational procedures
+  </Card>
+  <Card title="Troubleshooting" icon="wrench" href="/validator/troubleshooting">
+    Troubleshoot issues detected by monitoring
+  </Card>
+  <Card title="Configuration" icon="sliders" href="/validator/configuration">
+    Optimize configuration based on metrics
+  </Card>
+</CardGroup>

@@ -1,0 +1,254 @@
+---
+title: Runtime Architecture
+description: Bank and account management in Harmonic Salsa
+---
+
+The runtime is the core of Harmonic Salsa's state management, providing bank and account management, transaction execution coordination, and state transitions.
+
+## Bank Structure
+
+The Bank (~/workspace/source/runtime/src/bank.rs:1) is the primary interface for all state management:
+
+```rust
+// Bank represents a single block/slot's state
+// Each bank has a parent bank (except genesis)
+// Banks form a tree structure representing forks
+```
+
+### Key Responsibilities
+
+- **Account Management**: Load, store, and cache account data
+- **Transaction Processing**: Coordinate execution through SVM
+- **Sysvar Updates**: Maintain system variables (clock, rent, etc.)
+- **Rent Collection**: Apply rent to accounts
+- **Epoch Transitions**: Handle epoch boundary logic
+
+## Bank Lifecycle
+
+Banks progress through several states:
+
+### 1. Active Bank
+
+- Created as child of parent bank
+- Open for transaction processing
+- Tracks slot, parent slot, and tick height
+- Maintains working state in memory
+
+```rust
+// Referenced at: ~/workspace/source/runtime/src/bank.rs:19
+// Bank lifecycle:
+// A bank is newly created and open to transactions.
+// Transactions are applied until the bank reached the tick count
+// when the node is the leader for that slot.
+```
+
+### 2. Frozen Bank
+
+- No more transactions can be applied
+- Rent applied to all accounts
+- Sysvars updated to new state
+- Hash computed over all accounts
+
+```rust
+// Referenced at: ~/workspace/source/runtime/src/bank.rs:25
+// Once complete, the bank can be frozen. After frozen,
+// no more transactions can be applied or state changes made.
+```
+
+### 3. Rooted Bank
+
+- Received sufficient votes for finality
+- Cannot be removed from chain
+- State is finalized
+- Parent banks can be cleaned up
+
+```rust
+// Referenced at: ~/workspace/source/runtime/src/bank.rs:29
+// After frozen, and the bank has had the appropriate number
+// of votes on it, then it can become rooted.
+```
+
+## Transaction Execution
+
+Transaction execution flows through several layers:
+
+### Processing Pipeline
+
+1. **Load Accounts** - AccountsDb loads required accounts
+2. **Validate Fees** - Check fee payer has sufficient balance
+3. **Execute Transaction** - Pass to SVM for execution
+4. **Verify Results** - Check rent, account ownership rules
+5. **Commit State** - Write modified accounts back
+
+### Bank Processing Interface
+
+The main entry point (~/workspace/source/runtime/src/bank.rs:7):
+
+```rust
+// Bank::process_transactions
+// Main entrypoint for processing verified transactions
+```
+
+Key steps:
+
+1. Load accounts using AccountsDb reference
+2. Pass accounts to SVM TransactionBatchProcessor
+3. SVM creates InvokeContext with loaded accounts
+4. Programs execute through InvokeContext
+5. Results stored back to AccountsDb
+
+## Account Management
+
+The runtime provides several account management features:
+
+### Account Loading
+
+- Load from AccountsDb with caching
+- Rent-exempt status validation
+- Owner and executable checks
+- Size and data validation
+
+### Account Storage
+
+Account storage uses the Accounts type (~/workspace/source/accounts-db/src/accounts.rs):
+
+```rust
+// Accounts coordinates between:
+// - AccountsDb: Persistent storage
+// - AccountsCache: In-memory cache
+// - AccountsIndex: Fast lookups
+```
+
+### Account Cache
+
+Recently accessed accounts cached in memory:
+
+- Reduces disk I/O
+- Faster transaction execution
+- Write-through cache strategy
+- Cache flushed periodically to disk
+
+## Bank Forks
+
+The BankForks structure (~/workspace/source/runtime/src/bank_forks.rs) manages the fork tree:
+
+### Fork Management
+
+- Maintains tree of all active banks
+- Tracks working bank (current leader slot)
+- Tracks root bank (finalized state)
+- Prunes old forks after rooting
+
+### Fork Selection
+
+- Replay stage selects best fork
+- Based on Tower BFT consensus
+- Considers stake weight and lockouts
+- May switch forks based on votes
+
+## State Transitions
+
+### Slot Transitions
+
+Each slot gets a new bank:
+
+```rust
+// Create child bank from parent
+// Copy parent state (COW semantics)
+// Apply new transactions
+// Freeze when slot complete
+```
+
+### Epoch Transitions
+
+Epoch boundaries trigger special processing:
+
+- **Stake Activation/Deactivation**: Update active stake
+- **Inflation Rewards**: Distribute staking rewards
+- **Leader Schedule**: Compute next epoch's leaders
+- **Rent Collection**: Collect rent from all accounts
+- **Snapshot Creation**: Full account snapshot
+
+### Sysvar Updates
+
+System variables updated each slot:
+
+- **Clock**: Current slot, epoch, timestamp
+- **Slot Hashes**: Recent slot hashes
+- **Rent**: Current rent rates
+- **Epoch Schedule**: Epoch boundaries
+- **Stake History**: Historical stake levels
+
+## Transaction Batch Processing
+
+The TransactionBatch (~/workspace/source/runtime/src/transaction_batch.rs) provides:
+
+- Account lock management
+- Batch-level validation
+- Fee collection
+- Error handling
+
+### Lock Validation
+
+```rust
+// Validate account locks before execution
+// Ensure no read/write conflicts
+// Release locks after batch complete
+// Referenced at: ~/workspace/source/accounts-db/src/account_locks.rs:1
+```
+
+## Commitment Levels
+
+The runtime tracks multiple commitment levels (~/workspace/source/runtime/src/commitment.rs):
+
+- **Processed**: Transaction executed, not yet finalized
+- **Confirmed**: Received 2/3+ stake votes
+- **Finalized**: Rooted, cannot be rolled back
+
+## Performance Optimizations
+
+### Parallel Execution
+
+- Non-conflicting transactions execute in parallel
+- Scheduler identifies independent transactions
+- Thread pool for concurrent execution
+
+### Account Caching
+
+- Hot accounts kept in memory
+- Reduces disk I/O overhead
+- Write-through cache consistency
+
+### Snapshot & Restore
+
+- Periodic full state snapshots
+- Incremental snapshots for recent changes
+- Fast validator startup from snapshots
+
+## Integration Points
+
+### With SVM
+
+- Bank provides TransactionProcessingCallback
+- SVM calls back for account state
+- Bank validates and commits results
+
+### With AccountsDb
+
+- Bank loads/stores through Accounts
+- AccountsDb handles persistence
+- Shared account cache
+
+### With Consensus
+
+- Replay stage drives bank replay
+- Tower BFT selects forks
+- Banks frozen and rooted based on votes
+
+## Key Files
+
+- **Bank**: ~/workspace/source/runtime/src/bank.rs
+- **BankForks**: ~/workspace/source/runtime/src/bank_forks.rs
+- **TransactionBatch**: ~/workspace/source/runtime/src/transaction_batch.rs
+- **Commitment**: ~/workspace/source/runtime/src/commitment.rs
+- **Stakes**: ~/workspace/source/runtime/src/stakes.rs

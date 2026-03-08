@@ -1,0 +1,513 @@
+---
+title: Security Best Practices
+description: Security guidelines for operating Harmonic Salsa validators
+---
+
+# Security Best Practices
+
+Operating a production validator requires strict adherence to security best practices to protect your validator, vote account, and staked assets.
+
+## Key Management
+
+### Withdrawer Key Security (CRITICAL)
+
+**Never Store Withdrawer Key on Validator:**
+The authorized withdrawer keypair has ultimate control over your vote account. Compromise of this key means:
+- Complete loss of vote account control
+- Ability for attacker to withdraw all funds
+- Ability to change all vote account settings
+- Permanent loss if the key is lost
+
+**Recommended Storage Methods:**
+
+1. **Hardware Wallet:**
+   - Ledger or Trezor devices
+   - Best practice for mainnet validators
+   - Provides physical security and transaction signing
+
+2. **Paper Wallet:**
+   - Seed phrase written and stored securely
+   - Multiple copies in different physical locations
+   - Fireproof and waterproof storage containers
+   - Never digitized or photographed
+
+3. **Multisig:**
+   - Distributed control across multiple hardware wallets
+   - Requires M-of-N signatures for operations
+   - Recommended for large validator operations
+   - Provides redundancy and security
+
+4. **Air-Gapped Computer:**
+   - Dedicated offline computer never connected to network
+   - Used only for signing critical transactions
+   - Secure physical location
+
+**Withdrawer Key Usage:**
+Only use the withdrawer key for:
+- Changing vote account commission
+- Changing authorized voter
+- Changing authorized withdrawer
+- Withdrawing funds from vote account
+
+Always perform these operations on a trusted, offline computer, never on the validator itself.
+
+### Identity and Vote Account Keypairs
+
+**File Permissions:**
+```bash
+# Set restrictive permissions
+chmod 600 /home/sol/validator-keypair.json
+chmod 600 /home/sol/vote-account-keypair.json
+chown sol:sol /home/sol/*.json
+
+# Verify permissions
+ls -la /home/sol/*.json
+```
+
+**Backup Procedures:**
+```bash
+# Encrypt backups before storage
+tar czf - validator-keypair.json vote-account-keypair.json | \
+  gpg --symmetric --cipher-algo AES256 > validator-keys-backup.tar.gz.gpg
+
+# Store encrypted backup in multiple secure locations
+```
+
+**Recovery Planning:**
+- Document recovery procedures
+- Test recovery process on testnet
+- Store backup locations in secure documentation
+- Maintain updated inventory of all keypairs
+
+### Key Rotation
+
+**Identity Key Rotation:**
+Change validator identity periodically or after security incidents:
+```bash
+# Generate new identity
+solana-keygen new -o new-validator-keypair.json
+
+# Update validator configuration
+# Restart validator with new identity
+```
+
+**Vote Account Authorized Voter Rotation:**
+```bash
+# Update authorized voter (requires withdrawer key)
+solana vote-authorize-voter <VOTE_ACCOUNT> <NEW_AUTHORIZED_VOTER>
+```
+
+## Network Security
+
+### Firewall Configuration
+
+**Essential Firewall Rules:**
+```bash
+# Install UFW
+sudo apt install ufw
+
+# Default policies
+sudo ufw default deny incoming
+sudo ufw default allow outgoing
+
+# SSH access (use custom port if possible)
+sudo ufw allow 22/tcp
+# Or custom SSH port:
+# sudo ufw allow 2222/tcp
+
+# Validator ports
+sudo ufw allow 8001/tcp    # Gossip
+sudo ufw allow 8001/udp    # Gossip
+sudo ufw allow 8000:8020/tcp  # Dynamic port range
+sudo ufw allow 8000:8020/udp  # Dynamic port range
+
+# RPC (only if needed, consider restricting to specific IPs)
+# sudo ufw allow 8899/tcp
+# Or restrict to specific IP:
+# sudo ufw allow from <TRUSTED_IP> to any port 8899 proto tcp
+
+# Enable firewall
+sudo ufw enable
+
+# Check status
+sudo ufw status verbose
+```
+
+**Advanced: iptables Rules:**
+```bash
+# Rate limit SSH connections
+sudo iptables -A INPUT -p tcp --dport 22 -m state --state NEW -m recent --set
+sudo iptables -A INPUT -p tcp --dport 22 -m state --state NEW -m recent --update --seconds 60 --hitcount 4 -j DROP
+
+# DDoS protection
+sudo iptables -A INPUT -p tcp --syn -m limit --limit 10/s --limit-burst 20 -j ACCEPT
+```
+
+### Port Security
+
+**Minimize Exposed Ports:**
+- Only open ports required for validator operation
+- Never expose RPC publicly unless necessary
+- Use VPN or SSH tunneling for administrative access
+
+**RPC Security:**
+If RPC must be public:
+```bash
+# Rate limiting (nginx example)
+limit_req_zone $binary_remote_addr zone=rpc:10m rate=10r/s;
+location /rpc {
+    limit_req zone=rpc burst=20;
+    proxy_pass http://localhost:8899;
+}
+```
+
+### SSH Hardening
+
+**Disable Password Authentication:**
+Edit `/etc/ssh/sshd_config`:
+```bash
+PasswordAuthentication no
+PubkeyAuthentication yes
+PermitRootLogin no
+Port 2222  # Use non-standard port
+```
+
+**SSH Key Management:**
+```bash
+# Generate strong SSH key on trusted computer
+ssh-keygen -t ed25519 -C "validator-access"
+
+# Copy to validator
+ssh-copy-id -i ~/.ssh/id_ed25519.pub sol@<validator-ip>
+
+# Set proper permissions
+chmod 700 ~/.ssh
+chmod 600 ~/.ssh/authorized_keys
+```
+
+**Install fail2ban:**
+```bash
+# Install
+sudo apt install fail2ban
+
+# Configure /etc/fail2ban/jail.local
+[sshd]
+enabled = true
+port = 2222
+filter = sshd
+logpath = /var/log/auth.log
+maxretry = 3
+bantime = 3600
+
+# Restart
+sudo systemctl restart fail2ban
+
+# Check status
+sudo fail2ban-client status sshd
+```
+
+### DDoS Mitigation
+
+**System Limits:**
+Already configured in deployment sysctl settings.
+
+**Network-Level Protection:**
+- Use upstream DDoS protection (cloud provider, Cloudflare)
+- Consider deploying behind load balancer
+- Monitor for unusual traffic patterns
+
+## Access Control
+
+### User Access Management
+
+**Principle of Least Privilege:**
+```bash
+# Create separate user for validator
+sudo adduser sol
+
+# Add to necessary groups only
+sudo usermod -aG systemd-journal sol
+
+# Never use root
+# Never add sol to sudo group unless absolutely necessary
+```
+
+**Sudo Configuration:**
+If sudo access is required, use specific commands:
+```bash
+# /etc/sudoers.d/sol
+sol ALL=(ALL) NOPASSWD: /bin/systemctl restart sol
+sol ALL=(ALL) NOPASSWD: /bin/systemctl status sol
+sol ALL=(ALL) NOPASSWD: /bin/journalctl -u sol
+```
+
+### Admin RPC Security
+
+**Restrict Admin RPC Access:**
+```bash
+# Only bind to localhost
+--admin-rpc-address 127.0.0.1:8900
+
+# Use SSH tunnel for remote access
+ssh -L 8900:localhost:8900 sol@<validator-ip>
+```
+
+### Two-Factor Authentication
+
+**Enable 2FA for SSH:**
+```bash
+# Install Google Authenticator
+sudo apt install libpam-google-authenticator
+
+# Setup for user
+google-authenticator
+
+# Configure PAM
+# Edit /etc/pam.d/sshd
+auth required pam_google_authenticator.so
+
+# Edit /etc/ssh/sshd_config
+ChallengeResponseAuthentication yes
+
+# Restart SSH
+sudo systemctl restart sshd
+```
+
+## Audit Logging
+
+### System Audit (auditd)
+
+**Install and Configure:**
+```bash
+# Install
+sudo apt install auditd audispd-plugins
+
+# Monitor keypair access
+sudo auditctl -w /home/sol/validator-keypair.json -p rwa -k validator_keypair
+sudo auditctl -w /home/sol/vote-account-keypair.json -p rwa -k vote_keypair
+
+# Monitor configuration changes
+sudo auditctl -w /etc/systemd/system/sol.service -p wa -k validator_service
+sudo auditctl -w /home/sol/bin/validator.sh -p wa -k validator_script
+
+# Make rules persistent
+sudo sh -c 'auditctl -l > /etc/audit/rules.d/validator.rules'
+
+# Restart auditd
+sudo systemctl restart auditd
+```
+
+**Review Audit Logs:**
+```bash
+# Search for keypair access
+sudo ausearch -k validator_keypair
+
+# View audit log
+sudo ausearch -ts today
+```
+
+### Validator Logging
+
+**Log Retention:**
+```bash
+# Configure log rotation (see deployment guide)
+# Keep logs for at least 90 days for security analysis
+rotate 90
+daily
+compress
+```
+
+**Log Monitoring:**
+```bash
+# Monitor for suspicious patterns
+grep -i error /home/sol/agave-validator.log | tail -100
+grep -i panic /home/sol/agave-validator.log
+grep -i "unauthorized" /home/sol/agave-validator.log
+```
+
+### Security Information and Event Management (SIEM)
+
+**Centralized Logging:**
+Consider forwarding logs to centralized SIEM:
+- Splunk
+- ELK Stack (Elasticsearch, Logstash, Kibana)
+- Graylog
+
+**Alert on Critical Events:**
+- Failed login attempts
+- Keypair file access
+- Service restarts
+- Validator delinquency
+- Unexpected configuration changes
+
+## System Security
+
+### Operating System Hardening
+
+**Keep System Updated:**
+```bash
+# Enable automatic security updates
+sudo apt install unattended-upgrades
+sudo dpkg-reconfigure -plow unattended-upgrades
+
+# Manual updates
+sudo apt update
+sudo apt upgrade
+```
+
+**Disable Unnecessary Services:**
+```bash
+# List running services
+systemctl list-unit-files --state=enabled
+
+# Disable unused services
+sudo systemctl disable <service-name>
+sudo systemctl stop <service-name>
+```
+
+**Secure Shared Memory:**
+Add to `/etc/fstab`:
+```bash
+tmpfs /run/shm tmpfs defaults,noexec,nosuid 0 0
+```
+
+### Kernel Hardening
+
+**Additional sysctl Settings:**
+Add to `/etc/sysctl.d/99-security.conf`:
+```bash
+# IP Spoofing protection
+net.ipv4.conf.all.rp_filter = 1
+net.ipv4.conf.default.rp_filter = 1
+
+# Ignore ICMP redirects
+net.ipv4.conf.all.accept_redirects = 0
+net.ipv6.conf.all.accept_redirects = 0
+
+# Ignore send redirects
+net.ipv4.conf.all.send_redirects = 0
+
+# Disable source packet routing
+net.ipv4.conf.all.accept_source_route = 0
+net.ipv6.conf.all.accept_source_route = 0
+
+# Log Martians
+net.ipv4.conf.all.log_martians = 1
+
+# Ignore ICMP ping requests
+net.ipv4.icmp_echo_ignore_all = 0
+
+# Apply settings
+sudo sysctl -p /etc/sysctl.d/99-security.conf
+```
+
+### Intrusion Detection
+
+**Install AIDE (Advanced Intrusion Detection Environment):**
+```bash
+# Install
+sudo apt install aide
+
+# Initialize database
+sudo aideinit
+
+# Check for changes
+sudo aide --check
+
+# Update database after legitimate changes
+sudo aide --update
+```
+
+## Incident Response
+
+### Preparation
+
+**Incident Response Plan:**
+1. Document contact information for team members
+2. Define escalation procedures
+3. Maintain list of critical systems and dependencies
+4. Document recovery procedures
+5. Regularly test incident response
+
+**Backup Strategy:**
+```bash
+# Automated backups of configuration (not keypairs on validator)
+#!/bin/bash
+BACKUP_DIR=/home/sol/backups
+mkdir -p $BACKUP_DIR
+tar czf $BACKUP_DIR/config-$(date +%Y%m%d).tar.gz \
+  /home/sol/bin/validator.sh \
+  /etc/systemd/system/sol.service \
+  /etc/sysctl.d/21-agave-validator.conf
+
+# Rotate old backups
+find $BACKUP_DIR -name "config-*.tar.gz" -mtime +30 -delete
+```
+
+### Detection
+
+**Monitor for Indicators:**
+- Unexpected validator downtime
+- Unusual network traffic
+- Failed authentication attempts
+- Unexpected file changes
+- Validator delinquency without known cause
+- Unusual CPU/memory usage
+
+**Alerting:**
+Use agave-watchtower for validator health monitoring (see monitoring guide).
+
+### Response Procedures
+
+**If Compromise is Suspected:**
+
+1. **Isolate:** Disconnect validator from network if safe to do so
+2. **Assess:** Determine scope of compromise
+3. **Contain:** Prevent further damage
+4. **Eradicate:** Remove threat
+5. **Recover:** Restore from clean backups
+6. **Post-Incident:** Document and improve defenses
+
+**Emergency Contacts:**
+- Discord: #validator-support
+- Security issues: Report per SECURITY.md guidelines
+
+## Compliance and Best Practices
+
+### Security Checklist
+
+**Pre-Deployment:**
+- [ ] Withdrawer key stored offline
+- [ ] Identity and vote account keys backed up
+- [ ] Firewall configured and enabled
+- [ ] SSH hardened (key-only, fail2ban installed)
+- [ ] System fully updated
+- [ ] Running as non-root user
+- [ ] File permissions set correctly
+- [ ] Audit logging configured
+
+**Ongoing:**
+- [ ] Weekly security updates
+- [ ] Monthly key backup verification
+- [ ] Quarterly security review
+- [ ] Regular log review
+- [ ] Monitor security advisories
+- [ ] Test incident response procedures
+
+### Security Resources
+
+**Official Documentation:**
+- SECURITY.md in repository
+- Solana Discord #validator-support
+- Bug bounty program (check official channels)
+
+**External Resources:**
+- CIS Ubuntu Hardening Guide
+- NIST Cybersecurity Framework
+- SANS Security Resources
+
+## Conclusion
+
+Security is not a one-time setup but an ongoing process. Regularly review and update your security practices, stay informed about new threats, and maintain strict operational discipline.
+
+Remember: The security of your validator directly impacts the security of the stake delegated to you and the overall network health.

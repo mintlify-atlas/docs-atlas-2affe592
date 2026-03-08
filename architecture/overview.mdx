@@ -1,0 +1,144 @@
+---
+title: Architecture Overview
+description: High-level architecture of Harmonic Salsa validator
+---
+
+Harmonic Salsa is a high-performance blockchain validator built on the Agave codebase. This architecture overview covers the major components and data flows within the validator.
+
+## System Components
+
+The validator is composed of several key subsystems:
+
+### Core Processing Pipeline
+
+- **TPU (Transaction Processing Unit)** - Processes incoming transactions when the validator is leader
+- **TVU (Transaction Validation Unit)** - Validates and processes blocks from other validators
+- **Banking Stage** - Executes transactions and updates account state
+- **SVM (Solana Virtual Machine)** - Core transaction execution engine
+
+### Consensus & Networking
+
+- **Gossip Protocol** - Peer discovery and cluster communication
+- **PoH (Proof of History)** - Cryptographic clock providing verifiable passage of time
+- **Tower BFT** - Consensus mechanism for fork selection and finality
+
+### State Management
+
+- **Runtime** - Bank and account management, state transitions
+- **Accounts Database** - Persistent storage for account data
+- **Ledger** - Blockchain storage using blockstore
+
+## Data Flow
+
+### Transaction Processing Flow
+
+1. **Ingestion**: Transactions arrive via QUIC/UDP
+2. **Signature Verification**: Parallel signature verification in sigverify stage
+3. **Banking Stage**: Transactions batched and scheduled for execution
+4. **SVM Execution**: Programs execute against loaded accounts
+5. **State Commitment**: Results written to accounts database
+6. **PoH Recording**: Transactions recorded in PoH sequence
+7. **Block Production**: Entries packaged into shreds and broadcast
+
+### Block Validation Flow
+
+1. **Shred Reception**: Block fragments received via turbine protocol
+2. **Reconstruction**: Shreds assembled into complete entries
+3. **Replay**: Transactions replayed through banking stage
+4. **Verification**: Results compared against block metadata
+5. **Consensus**: Tower BFT evaluates fork and votes
+6. **Commitment**: Bank frozen and rooted after sufficient votes
+
+## Key Subsystems
+
+### Banking Stage
+
+The banking stage (~/workspace/source/core/src/banking_stage.rs:1) is responsible for:
+
+- Transaction scheduling and batching
+- Parallel transaction execution
+- Conflict detection and resolution
+- Integration with PoH recorder
+
+### Replay Stage
+
+The replay stage (~/workspace/source/core/src/replay_stage.rs:1) handles:
+
+- Block replay and validation
+- Fork choice using Tower BFT
+- Vote generation
+- Optimistic confirmation
+
+### Runtime & Bank
+
+The runtime (~/workspace/source/runtime/src/bank.rs:1) provides:
+
+- Account storage and caching
+- Transaction processing coordination
+- Sysvar management
+- Rent collection
+- Epoch boundary transitions
+
+### Accounts Database
+
+The accounts database (~/workspace/source/accounts-db/src/accounts_db.rs:1) manages:
+
+- Persistent account storage in append-only files
+- Account indexing for fast lookups
+- Snapshot creation and loading
+- Cache management
+- Background cleaning and compaction
+
+## System Architecture
+
+The validator operates as a collection of services running in parallel:
+
+```
+┌─────────────┐
+│   Network   │ QUIC/UDP
+└──────┬──────┘
+       │
+       ▼
+┌─────────────┐
+│  Fetch Stage│
+└──────┬──────┘
+       │
+       ▼
+┌─────────────┐
+│   Sigverify │
+└──────┬──────┘
+       │
+       ▼
+┌─────────────┐      ┌─────────────┐
+│   Banking   │◄────►│ PoH Recorder│
+└──────┬──────┘      └─────────────┘
+       │
+       ▼
+┌─────────────┐
+│     SVM     │
+└──────┬──────┘
+       │
+       ▼
+┌─────────────┐
+│ Accounts DB │
+└─────────────┘
+```
+
+## Performance Characteristics
+
+- **Parallel Execution**: Multiple transactions execute concurrently when non-conflicting
+- **Optimistic Concurrency**: Read accounts optimistically, verify at commit
+- **Memory-Mapped I/O**: Account data accessed via mmap for performance
+- **Batch Processing**: Transactions processed in batches for efficiency
+- **Pipeline Architecture**: Stages operate in parallel on different blocks
+
+## Reference
+
+For the original architecture documentation, see ~/workspace/source/docs/src/architecture.md.
+
+Next sections:
+- [Runtime Architecture](./runtime.mdx)
+- [SVM](./svm.mdx)
+- [Consensus](./consensus.mdx)
+- [Gossip Protocol](./gossip.mdx)
+- [Accounts Database](./accounts-db.mdx)

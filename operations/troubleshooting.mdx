@@ -1,0 +1,790 @@
+---
+title: Production Troubleshooting
+description: Diagnostic procedures and solutions for common Harmonic Salsa validator issues
+---
+
+# Production Troubleshooting
+
+This guide provides systematic troubleshooting procedures for common validator issues encountered in production.
+
+## Common Issues
+
+### Validator Delinquent
+
+**Symptom:**
+Validator marked as delinquent, not voting on blocks.
+
+**Diagnosis:**
+```bash
+# Check validator status
+solana validators | grep $(solana-keygen pubkey ~/validator-keypair.json)
+
+# Check catchup status
+solana catchup $(solana-keygen pubkey ~/validator-keypair.json)
+
+# Check vote account
+solana vote-account $(solana-keygen pubkey ~/vote-account-keypair.json)
+```
+
+**Common Causes:**
+
+1. **Validator Behind Cluster:**
+   - Symptom: Large slot distance from cluster
+   - Solution: Wait for catchup, check network/CPU performance
+   ```bash
+   # Monitor catchup progress
+   watch -n 5 'solana catchup <validator-pubkey>'
+   ```
+
+2. **Insufficient Compute Resources:**
+   - Symptom: High CPU usage, slow PoH tick rate
+   - Solution: Check CPU governor, verify release build
+   ```bash
+   # Check CPU governor
+   cat /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor
+   
+   # Set to performance if needed
+   echo performance | sudo tee /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor
+   ```
+
+3. **Network Connectivity Issues:**
+   - Symptom: Not in gossip, no network activity
+   - Solution: Check firewall, network connectivity
+   ```bash
+   # Check if in gossip
+   solana gossip | grep $(solana-keygen pubkey ~/validator-keypair.json)
+   
+   # Test network connectivity
+   nc -zv entrypoint.mainnet-beta.solana.com 8001
+   ```
+
+4. **Disk I/O Bottleneck:**
+   - Symptom: High disk wait time, slow replay
+   - Solution: Monitor disk I/O, consider faster drives
+   ```bash
+   # Check disk I/O
+   iostat -x 5
+   
+   # Check disk health
+   sudo smartctl -a /dev/nvme0n1
+   ```
+
+### Validator Won't Start
+
+**Symptom:**
+Validator process exits immediately after starting.
+
+**Diagnosis:**
+```bash
+# Check systemd status
+sudo systemctl status sol
+
+# View recent logs
+journalctl -u sol -n 100 --no-pager
+
+# Check validator logs
+tail -100 /home/sol/agave-validator.log | grep ERROR
+```
+
+**Common Causes:**
+
+1. **Port Already in Use:**
+   - Error: "Address already in use"
+   - Solution: Check for conflicting processes, adjust ports
+   ```bash
+   # Find process using port
+   sudo lsof -i :8899
+   sudo lsof -i :8001
+   
+   # Kill conflicting process or change validator ports
+   ```
+
+2. **Insufficient File Descriptors:**
+   - Error: "Too many open files"
+   - Solution: Verify systemd limits
+   ```bash
+   # Check current limits
+   cat /proc/$(pgrep agave-validator)/limits | grep "open files"
+   
+   # Ensure systemd service has LimitNOFILE=1000000
+   sudo systemctl daemon-reload
+   sudo systemctl restart sol
+   ```
+
+3. **Insufficient Memory Lock:**
+   - Error: "Cannot allocate memory" or "mlock failed"
+   - Solution: Verify MEMLOCK limit
+   ```bash
+   # Check limit
+   ulimit -l
+   
+   # Set in systemd service: LimitMEMLOCK=2000000000
+   sudo systemctl daemon-reload
+   sudo systemctl restart sol
+   ```
+
+4. **Corrupted Ledger:**
+   - Error: "Failed to load ledger" or "RocksDB error"
+   - Solution: Restore from snapshot or resync
+   ```bash
+   # Stop validator
+   sudo systemctl stop sol
+   
+   # Backup existing ledger
+   mv /mnt/ledger /mnt/ledger.backup
+   
+   # Restart to download fresh snapshot
+   sudo systemctl start sol
+   ```
+
+5. **Invalid Genesis Hash:**
+   - Error: "Genesis hash mismatch"
+   - Solution: Verify correct genesis hash for cluster
+   ```bash
+   # Mainnet genesis hash
+   --expected-genesis-hash 5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d
+   ```
+
+### Out of Disk Space
+
+**Symptom:**
+Validator stops, "No space left on device" errors.
+
+**Diagnosis:**
+```bash
+# Check disk usage
+df -h
+
+# Check specific directories
+du -sh /mnt/ledger
+du -sh /mnt/accounts
+
+# Find large files
+du -ah /mnt/ledger | sort -rh | head -20
+```
+
+**Solutions:**
+
+1. **Enable Ledger Limiting:**
+   ```bash
+   # Add to validator.sh
+   --limit-ledger-size
+   ```
+
+2. **Clean Up Old Snapshots:**
+   ```bash
+   # Remove old snapshots manually (be careful!)
+   cd /mnt/ledger/snapshots
+   ls -lt snapshot-*.tar.zst | tail -n +6 | awk '{print $9}' | xargs rm -f
+   ```
+
+3. **Add Storage:**
+   - Provision larger drives
+   - Move snapshots to separate storage
+
+4. **Disable Transaction History:**
+   ```bash
+   # Remove from validator.sh if not needed
+   # --enable-rpc-transaction-history
+   ```
+
+### High Skip Rate
+
+**Symptom:**
+Validator skipping >5% of assigned slots.
+
+**Diagnosis:**
+```bash
+# Check block production
+solana block-production | grep $(solana-keygen pubkey ~/validator-keypair.json)
+
+# Monitor logs for slot skips
+grep "Slot.*skipped" /home/sol/agave-validator.log | tail -50
+
+# Check resource usage
+top -u sol
+iostat -x 5
+```
+
+**Common Causes:**
+
+1. **CPU Performance:**
+   - Slow PoH tick rate
+   - Solution: Verify CPU governor, clock speed
+   ```bash
+   # Check PoH speed in logs
+   grep "PoH speed" /home/sol/agave-validator.log
+   
+   # Ensure performance governor
+   echo performance | sudo tee /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor
+   ```
+
+2. **Disk I/O Latency:**
+   - High disk wait times
+   - Solution: Upgrade to faster NVMe drives
+   ```bash
+   # Check I/O wait
+   iostat -x 5 | grep nvme
+   ```
+
+3. **Network Latency:**
+   - Poor connectivity to cluster
+   - Solution: Improve network connection, reduce latency
+   ```bash
+   # Check network stats
+   netstat -i
+   
+   # Ping test to entrypoint
+   ping entrypoint.mainnet-beta.solana.com
+   ```
+
+4. **Insufficient Memory:**
+   - Swapping to disk
+   - Solution: Add more RAM or reduce memory usage
+   ```bash
+   # Check swap usage
+   free -h
+   vmstat 5
+   ```
+
+### Memory Issues
+
+**Symptom:**
+High memory usage, OOM kills, swapping.
+
+**Diagnosis:**
+```bash
+# Check memory usage
+free -h
+
+# Check swap usage
+swapon --show
+
+# Check for OOM kills in logs
+dmesg | grep -i oom
+journalctl -k | grep -i oom
+
+# Process memory usage
+ps aux --sort=-%mem | head -10
+```
+
+**Solutions:**
+
+1. **Add More RAM:**
+   - Mainnet validators typically need 256-512GB
+
+2. **Tune Accounts Cache:**
+   ```bash
+   # Reduce read cache if needed
+   --accounts-db-read-cache-limit 50000000
+   ```
+
+3. **Disable Unnecessary Features:**
+   ```bash
+   # Remove if not needed:
+   # --enable-rpc-transaction-history
+   # --account-index program-id
+   ```
+
+### Network Connectivity Issues
+
+**Symptom:**
+Validator not appearing in gossip, network errors in logs.
+
+**Diagnosis:**
+```bash
+# Check if in gossip
+solana gossip | grep $(solana-keygen pubkey ~/validator-keypair.json)
+
+# Check port accessibility
+sudo netstat -tulpn | grep agave-validator
+
+# Test external connectivity
+curl -I http://ifconfig.me
+
+# Check firewall
+sudo ufw status verbose
+```
+
+**Solutions:**
+
+1. **Firewall Configuration:**
+   ```bash
+   # Ensure ports are open
+   sudo ufw allow 8001/tcp
+   sudo ufw allow 8001/udp
+   sudo ufw allow 8000:8020/tcp
+   sudo ufw allow 8000:8020/udp
+   ```
+
+2. **Port Forwarding:**
+   - Configure router/firewall for port forwarding
+   - Verify public IP address is correct
+
+3. **Dynamic Port Range:**
+   ```bash
+   # Ensure sufficient ports available
+   --dynamic-port-range 8000-8025
+   ```
+
+4. **DNS Issues:**
+   ```bash
+   # Test DNS resolution
+   nslookup entrypoint.mainnet-beta.solana.com
+   
+   # Use specific DNS servers if needed
+   echo "nameserver 8.8.8.8" | sudo tee /etc/resolv.conf
+   ```
+
+## Diagnostic Tools
+
+### Solana CLI Tools
+
+**solana gossip:**
+List all validators in gossip network.
+```bash
+solana gossip
+solana gossip | grep <your-pubkey>
+```
+
+**solana validators:**
+Show all validators with stake information.
+```bash
+solana validators
+solana validators --sort-order skip-rate
+```
+
+**solana catchup:**
+Show catchup progress relative to cluster.
+```bash
+solana catchup <validator-pubkey>
+solana catchup <validator-pubkey> --our-localhost
+```
+
+**solana block-production:**
+Show block production statistics.
+```bash
+solana block-production
+solana block-production --epoch <epoch-number>
+```
+
+**solana vote-account:**
+Display vote account information.
+```bash
+solana vote-account <vote-account-pubkey>
+```
+
+**solana balance:**
+Check account balances.
+```bash
+# Identity balance
+solana balance $(solana-keygen pubkey ~/validator-keypair.json)
+
+# Vote account balance
+solana balance $(solana-keygen pubkey ~/vote-account-keypair.json)
+```
+
+### Validator Admin RPC
+
+**Enable Admin RPC:**
+```bash
+# In validator.sh
+--admin-rpc-address 127.0.0.1:8900
+```
+
+**Admin Commands:**
+```bash
+# Set log filter dynamically
+solana-validator --admin-rpc-address http://127.0.0.1:8900 set-log-filter solana=debug
+
+# Set log filter via RPC
+curl -X POST -H "Content-Type: application/json" -d '{
+  "jsonrpc":"2.0",
+  "id":1,
+  "method":"setLogFilter",
+  "params":["solana_runtime::bank=debug"]
+}' http://127.0.0.1:8900
+```
+
+### Blockstore Inspection
+
+**Using ldb (RocksDB tool):**
+```bash
+# Install rocksdb-tools
+sudo apt install rocksdb-tools
+
+# List column families
+ldb --db=/mnt/ledger/rocksdb/ list_column_families
+
+# Get property
+ldb --db=/mnt/ledger/rocksdb/ get <key>
+
+# Scan database
+ldb --db=/mnt/ledger/rocksdb/ scan --max_keys=10
+```
+
+**WARNING:** Only modify blockstore under expert guidance. Incorrect changes can corrupt your ledger.
+
+### System Diagnostic Commands
+
+**Process Information:**
+```bash
+# Find validator process
+ps aux | grep agave-validator
+
+# Process tree
+pstree -p $(pgrep agave-validator)
+
+# Open files
+lsof -p $(pgrep agave-validator) | wc -l
+
+# Process limits
+cat /proc/$(pgrep agave-validator)/limits
+```
+
+**Network Diagnostics:**
+```bash
+# Active connections
+netstat -an | grep ESTABLISHED | grep $(pgrep agave-validator)
+
+# Network interface stats
+ip -s link show eth0
+
+# Packet loss test
+ping -c 100 entrypoint.mainnet-beta.solana.com | tail -2
+```
+
+**Disk Diagnostics:**
+```bash
+# Disk health (NVMe)
+sudo nvme smart-log /dev/nvme0n1
+
+# SMART stats (SATA)
+sudo smartctl -a /dev/sda
+
+# I/O scheduler
+cat /sys/block/nvme0n1/queue/scheduler
+```
+
+## Log Analysis
+
+### Critical Log Patterns
+
+**Startup Validation:**
+```bash
+# Should see genesis hash validation
+grep "genesis hash" /home/sol/agave-validator.log
+
+# Check snapshot download
+grep -i "snapshot" /home/sol/agave-validator.log | tail -20
+
+# Verify successful start
+grep "initialized" /home/sol/agave-validator.log | tail -5
+```
+
+**Performance Issues:**
+```bash
+# PoH tick rate
+grep "PoH speed" /home/sol/agave-validator.log
+
+# Slot processing time
+grep "replay_stage" /home/sol/agave-validator.log | grep "duration"
+
+# Bank freezing time
+grep "freeze" /home/sol/agave-validator.log
+```
+
+**Error Analysis:**
+```bash
+# All errors in last 1000 lines
+tail -1000 /home/sol/agave-validator.log | grep ERROR
+
+# Panic events
+grep -i panic /home/sol/agave-validator.log
+
+# Network errors
+grep -i "connection" /home/sol/agave-validator.log | grep ERROR
+
+# Disk errors
+grep -i "disk\|io error" /home/sol/agave-validator.log
+```
+
+### Log Analysis Script
+
+```bash
+#!/bin/bash
+# analyze-logs.sh - Quick validator log analysis
+
+LOG_FILE="/home/sol/agave-validator.log"
+
+echo "=== Recent Errors ==="
+tail -1000 "$LOG_FILE" | grep ERROR | tail -10
+
+echo -e "\n=== Panic Events ==="
+grep -i panic "$LOG_FILE" | tail -5
+
+echo -e "\n=== Slot Skips ==="
+grep "skipped" "$LOG_FILE" | tail -10
+
+echo -e "\n=== PoH Status ==="
+grep "PoH speed" "$LOG_FILE" | tail -1
+
+echo -e "\n=== Recent Roots ==="
+grep "is now rooted" "$LOG_FILE" | tail -5
+```
+
+## Performance Debugging
+
+### CPU Performance
+
+**Check CPU Speed:**
+```bash
+# Current CPU frequency
+watch -n 1 "grep MHz /proc/cpuinfo"
+
+# CPU info
+lscpu
+
+# Thermal throttling check
+cat /sys/devices/system/cpu/cpu*/thermal_throttle/core_throttle_count
+```
+
+**Profile CPU Usage:**
+```bash
+# Top CPU-consuming threads
+top -H -p $(pgrep agave-validator)
+
+# CPU flame graph (requires perf)
+sudo perf record -F 99 -p $(pgrep agave-validator) -g -- sleep 30
+sudo perf script | ./flamegraph.pl > validator.svg
+```
+
+### Memory Profiling
+
+**Heap Profiling:**
+```bash
+# Install heaptrack
+sudo apt install heaptrack
+
+# Profile validator (start fresh)
+heaptrack /usr/local/bin/agave-validator <args>
+
+# Analyze results
+heaptrack_gui heaptrack.agave-validator.*.gz
+```
+
+**Memory Maps:**
+```bash
+# Process memory map
+cat /proc/$(pgrep agave-validator)/maps
+
+# Memory statistics
+cat /proc/$(pgrep agave-validator)/status | grep -i mem
+```
+
+### Network Performance
+
+**Bandwidth Testing:**
+```bash
+# Install iperf3
+sudo apt install iperf3
+
+# Test bandwidth to known validator
+iperf3 -c <known-validator-ip>
+```
+
+**Latency Testing:**
+```bash
+# Ping latency
+ping -c 100 entrypoint.mainnet-beta.solana.com | tail -2
+
+# MTR (network diagnostic)
+mtr -r -c 100 entrypoint.mainnet-beta.solana.com
+```
+
+### Disk Performance
+
+**Benchmark Disk I/O:**
+```bash
+# Install fio
+sudo apt install fio
+
+# Random read test
+sudo fio --name=random-read --ioengine=libaio --iodepth=32 \
+  --rw=randread --bs=4k --direct=1 --size=4G --numjobs=4 \
+  --runtime=60 --group_reporting --filename=/mnt/ledger/test
+
+# Random write test
+sudo fio --name=random-write --ioengine=libaio --iodepth=32 \
+  --rw=randwrite --bs=4k --direct=1 --size=4G --numjobs=4 \
+  --runtime=60 --group_reporting --filename=/mnt/ledger/test
+```
+
+## Recovery Procedures
+
+### Ledger Recovery
+
+**Recover from Snapshot:**
+```bash
+# Stop validator
+sudo systemctl stop sol
+
+# Backup existing ledger
+mv /mnt/ledger /mnt/ledger.backup.$(date +%s)
+
+# Create fresh ledger directory
+mkdir /mnt/ledger
+chown sol:sol /mnt/ledger
+
+# Restart (will download snapshot)
+sudo systemctl start sol
+
+# Monitor catchup
+watch -n 5 'solana catchup <validator-pubkey>'
+```
+
+**Manual Snapshot Download:**
+```bash
+# Stop validator
+sudo systemctl stop sol
+
+# Download from known validator
+agave-validator download-snapshot \
+  --rpc-url http://<known-validator-rpc>:8899 \
+  --ledger /mnt/ledger
+
+# Restart
+sudo systemctl start sol
+```
+
+### Accounts Database Recovery
+
+**Rebuild from Snapshot:**
+```bash
+# Stop validator
+sudo systemctl stop sol
+
+# Remove accounts
+rm -rf /mnt/accounts/*
+
+# Restart (will rebuild from ledger)
+sudo systemctl start sol
+```
+
+### Vote Account Issues
+
+**Insufficient Balance:**
+```bash
+# Check balance
+solana balance $(solana-keygen pubkey ~/vote-account-keypair.json)
+
+# Add funds (from identity or other source)
+solana transfer --allow-unfunded-recipient \
+  $(solana-keygen pubkey ~/vote-account-keypair.json) 1.0
+```
+
+**Delinquent Vote Account:**
+- Typically resolves when validator catches up
+- Ensure validator is running and healthy
+- Monitor vote credits increasing
+
+## Getting Help
+
+### Community Resources
+
+**Discord Channels:**
+- #validator-support - General validator help
+- #testnet-announcements - Important cluster updates
+- Join: https://solana.com/discord
+
+**Useful Links:**
+- Network Explorer: http://explorer.solana.com/
+- Metrics Dashboard: https://metrics.solana.com:3000/d/monitor-edge/cluster-telemetry
+- GitHub Issues: https://github.com/anza-xyz/agave/issues
+
+### Reporting Issues
+
+**Information to Include:**
+1. Validator pubkey
+2. Cluster (mainnet/testnet/devnet)
+3. Agave version (`agave-validator --version`)
+4. System specifications (CPU, RAM, storage)
+5. Relevant log excerpts
+6. Steps to reproduce
+7. Recent changes to configuration
+
+**Log Collection:**
+```bash
+# Collect relevant logs
+tar czf validator-logs-$(date +%s).tar.gz \
+  /home/sol/agave-validator.log \
+  /home/sol/bin/validator.sh \
+  /etc/systemd/system/sol.service
+
+# System information
+sudo lshw -short > system-info.txt
+df -h >> system-info.txt
+free -h >> system-info.txt
+uname -a >> system-info.txt
+```
+
+### Before Seeking Help
+
+**Checklist:**
+- [ ] Checked recent logs for errors
+- [ ] Verified system resources (CPU, RAM, disk)
+- [ ] Confirmed network connectivity
+- [ ] Reviewed recent configuration changes
+- [ ] Searched existing issues/discussions
+- [ ] Tried basic troubleshooting steps
+- [ ] Collected relevant diagnostic information
+
+## Emergency Procedures
+
+### Validator Crash
+
+1. **Check if process is running:**
+   ```bash
+   sudo systemctl status sol
+   ```
+
+2. **Review crash logs:**
+   ```bash
+   journalctl -u sol -n 200 --no-pager
+   tail -500 /home/sol/agave-validator.log
+   ```
+
+3. **Check for OOM kill:**
+   ```bash
+   dmesg | grep -i oom
+   ```
+
+4. **Restart if safe:**
+   ```bash
+   sudo systemctl start sol
+   ```
+
+5. **Monitor recovery:**
+   ```bash
+   tail -f /home/sol/agave-validator.log
+   ```
+
+### Data Corruption
+
+If ledger corruption is suspected:
+
+1. **Stop validator immediately**
+2. **Backup corrupted data** for analysis
+3. **Restore from clean snapshot**
+4. **Report issue** with details
+
+### Security Incident
+
+If compromise is suspected:
+
+1. **Isolate validator** from network
+2. **Assess compromise scope**
+3. **Follow security incident procedures** (see security guide)
+4. **Report to appropriate channels**
+
+Remember: When in doubt, ask for help in Discord #validator-support before making major changes.

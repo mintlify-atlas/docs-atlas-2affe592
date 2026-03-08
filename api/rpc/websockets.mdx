@@ -1,0 +1,527 @@
+---
+title: 'WebSocket API'
+description: 'Real-time subscriptions via WebSocket'
+---
+
+## Overview
+
+The WebSocket API provides real-time subscriptions to account changes, signatures, slots, and other blockchain events. WebSocket connections are persistent and push updates to clients as events occur.
+
+**Default Port:** 8900
+
+**Endpoint:** `ws://localhost:8900` or `wss://` for secure connections
+
+## Connection
+
+### JavaScript Example
+
+```javascript
+const ws = new WebSocket('ws://localhost:8900');
+
+ws.on('open', () => {
+  // Send subscription request
+  ws.send(JSON.stringify({
+    jsonrpc: '2.0',
+    id: 1,
+    method: 'accountSubscribe',
+    params: [
+      'pubkey-here',
+      { encoding: 'base64', commitment: 'confirmed' }
+    ]
+  }));
+});
+
+ws.on('message', (data) => {
+  const response = JSON.parse(data);
+  console.log('Received:', response);
+});
+```
+
+### Rust Example
+
+```rust
+use solana_pubsub_client::pubsub_client::PubsubClient;
+use solana_rpc_client_api::config::RpcAccountInfoConfig;
+
+let url = "ws://localhost:8900";
+let (mut subscription, receiver) = PubsubClient::account_subscribe(
+    url,
+    &pubkey,
+    Some(RpcAccountInfoConfig::default()),
+)?;
+
+loop {
+    match receiver.recv() {
+        Ok(response) => println!("Account update: {:?}", response),
+        Err(e) => eprintln!("Error: {:?}", e),
+    }
+}
+```
+
+## Subscription Methods
+
+### accountSubscribe
+
+Subscribe to account changes.
+
+**Parameters:**
+
+<ParamField path="pubkey" type="string" required>
+  Account public key as base-58 encoded string
+</ParamField>
+
+<ParamField path="config" type="object">
+  Configuration object
+  
+  **Fields:**
+  - `encoding` (string): base58, base64, base64+zstd, jsonParsed
+  - `commitment` (string): Commitment level
+</ParamField>
+
+**Subscribe Request:**
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "accountSubscribe",
+  "params": [
+    "CM78CPUeXjn8o3yroDHxUtKsZZgoy4GPkPPXfouKNH12",
+    {"encoding": "base64", "commitment": "confirmed"}
+  ]
+}
+```
+
+**Subscribe Response:**
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "result": 0  // Subscription ID
+}
+```
+
+**Notification Format:**
+
+```json
+{
+  "jsonrpc": "2.0",
+  "method": "accountNotification",
+  "params": {
+    "result": {
+      "context": {"slot": 12345},
+      "value": {
+        "lamports": 1000000,
+        "owner": "11111111111111111111111111111111",
+        "data": ["base64-data", "base64"],
+        "executable": false,
+        "rentEpoch": 361
+      }
+    },
+    "subscription": 0
+  }
+}
+```
+
+**Unsubscribe:**
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "accountUnsubscribe",
+  "params": [0]  // Subscription ID
+}
+```
+
+---
+
+### programSubscribe
+
+Subscribe to all accounts owned by a program.
+
+**Parameters:**
+
+<ParamField path="programId" type="string" required>
+  Program public key as base-58 encoded string
+</ParamField>
+
+<ParamField path="config" type="object">
+  Configuration object
+  
+  **Fields:**
+  - `encoding` (string): Account data encoding
+  - `commitment` (string): Commitment level
+  - `filters` (array): Optional filters (same as getProgramAccounts)
+</ParamField>
+
+**Subscribe Request:**
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "programSubscribe",
+  "params": [
+    "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+    {
+      "encoding": "jsonParsed",
+      "commitment": "confirmed",
+      "filters": [
+        {"dataSize": 165}
+      ]
+    }
+  ]
+}
+```
+
+**Notification Format:**
+
+```json
+{
+  "jsonrpc": "2.0",
+  "method": "programNotification",
+  "params": {
+    "result": {
+      "context": {"slot": 12345},
+      "value": {
+        "pubkey": "account-pubkey",
+        "account": {
+          "lamports": 1000,
+          "owner": "program-id",
+          "data": [...],
+          "executable": false,
+          "rentEpoch": 361
+        }
+      }
+    },
+    "subscription": 1
+  }
+}
+```
+
+---
+
+### signatureSubscribe
+
+Subscribe to transaction signature confirmation.
+
+**Parameters:**
+
+<ParamField path="signature" type="string" required>
+  Transaction signature as base-58 encoded string
+</ParamField>
+
+<ParamField path="config" type="object">
+  Configuration object
+  
+  **Fields:**
+  - `commitment` (string): Commitment level
+  - `enableReceivedNotification` (bool): Send notification when received
+</ParamField>
+
+**Subscribe Request:**
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "signatureSubscribe",
+  "params": [
+    "5VERv8NMvzbJMEkV8xnrLkEaWRtSz9CosKDYjCJjBRnbJLgp8uirBgmQpjKhoR4tjF3ZpRzrFmBV6UjKdiSZkQUW",
+    {"commitment": "confirmed"}
+  ]
+}
+```
+
+**Notification Format:**
+
+```json
+{
+  "jsonrpc": "2.0",
+  "method": "signatureNotification",
+  "params": {
+    "result": {
+      "context": {"slot": 12345},
+      "value": {
+        "err": null  // null on success, error object on failure
+      }
+    },
+    "subscription": 2
+  }
+}
+```
+
+<Note>
+  The subscription automatically closes after sending a notification.
+</Note>
+
+---
+
+### slotSubscribe
+
+Subscribe to slot notifications.
+
+**Parameters:** None
+
+**Subscribe Request:**
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "slotSubscribe"
+}
+```
+
+**Notification Format:**
+
+```json
+{
+  "jsonrpc": "2.0",
+  "method": "slotNotification",
+  "params": {
+    "result": {
+      "parent": 12344,
+      "root": 12300,
+      "slot": 12345
+    },
+    "subscription": 3
+  }
+}
+```
+
+---
+
+### slotsUpdatesSubscribe
+
+Subscribe to all slot update events.
+
+**Parameters:** None
+
+**Subscribe Request:**
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "slotsUpdatesSubscribe"
+}
+```
+
+**Notification Format:**
+
+```json
+{
+  "jsonrpc": "2.0",
+  "method": "slotsUpdatesNotification",
+  "params": {
+    "result": {
+      "slot": 12345,
+      "timestamp": 1234567890,
+      "type": "firstShredReceived"  // or "completed", "optimisticConfirmation", "root"
+    },
+    "subscription": 4
+  }
+}
+```
+
+**Update Types:**
+- `firstShredReceived`: First shred received for slot
+- `completed`: All shreds received
+- `optimisticConfirmation`: Slot optimistically confirmed
+- `root`: Slot finalized as root
+- `createdBank`: Bank created for slot
+- `frozen`: Slot frozen
+- `dead`: Slot marked dead
+
+---
+
+### logsSubscribe
+
+Subscribe to transaction logs.
+
+**Parameters:**
+
+<ParamField path="filter" type="string|object" required>
+  Filter for logs
+  
+  **Options:**
+  - `"all"`: All transactions
+  - `"allWithVotes"`: All transactions including votes
+  - `{"mentions": ["pubkey"]}`: Transactions mentioning address
+</ParamField>
+
+<ParamField path="config" type="object">
+  Configuration with `commitment` field
+</ParamField>
+
+**Subscribe Request:**
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "logsSubscribe",
+  "params": [
+    {"mentions": ["CM78CPUeXjn8o3yroDHxUtKsZZgoy4GPkPPXfouKNH12"]},
+    {"commitment": "confirmed"}
+  ]
+}
+```
+
+**Notification Format:**
+
+```json
+{
+  "jsonrpc": "2.0",
+  "method": "logsNotification",
+  "params": {
+    "result": {
+      "context": {"slot": 12345},
+      "value": {
+        "signature": "5VERv...",
+        "err": null,
+        "logs": [
+          "Program log: Instruction: Transfer",
+          "Program log: Success"
+        ]
+      }
+    },
+    "subscription": 5
+  }
+}
+```
+
+---
+
+### blockSubscribe
+
+Subscribe to block notifications.
+
+<Warning>
+  This method is disabled by default. Enable with `--rpc-pubsub-enable-block-subscription`.
+</Warning>
+
+**Parameters:**
+
+<ParamField path="filter" type="string" required>
+  Filter type: `"all"` or specific block filter
+</ParamField>
+
+<ParamField path="config" type="object">
+  Configuration object
+  
+  **Fields:**
+  - `encoding` (string): Transaction encoding
+  - `commitment` (string): Commitment level
+  - `transactionDetails` (string): full, signatures, none
+  - `showRewards` (bool): Include rewards
+  - `maxSupportedTransactionVersion` (number): Max version
+</ParamField>
+
+---
+
+### voteSubscribe
+
+Subscribe to vote transactions.
+
+<Warning>
+  This method is disabled by default. Enable with `--rpc-pubsub-enable-vote-subscription`.
+</Warning>
+
+**Parameters:** None
+
+**Notification Format:**
+
+```json
+{
+  "jsonrpc": "2.0",
+  "method": "voteNotification",
+  "params": {
+    "result": {
+      "hash": "vote-hash",
+      "slots": [12345, 12346],
+      "timestamp": 1234567890,
+      "signature": "vote-signature",
+      "votePubkey": "vote-account-pubkey"
+    },
+    "subscription": 7
+  }
+}
+```
+
+---
+
+### rootSubscribe
+
+Subscribe to root (finalized slot) notifications.
+
+**Parameters:** None
+
+**Subscribe Request:**
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "rootSubscribe"
+}
+```
+
+**Notification Format:**
+
+```json
+{
+  "jsonrpc": "2.0",
+  "method": "rootNotification",
+  "params": {
+    "result": 12345,  // Root slot number
+    "subscription": 8
+  }
+}
+```
+
+---
+
+## Best Practices
+
+### Connection Management
+
+1. **Implement reconnection logic**: WebSocket connections can drop
+2. **Handle ping/pong**: Keep connections alive
+3. **Limit subscriptions**: Max 10 subscriptions per connection
+4. **Close unused subscriptions**: Call unsubscribe methods
+
+### Error Handling
+
+```javascript
+ws.on('error', (error) => {
+  console.error('WebSocket error:', error);
+  // Implement reconnection
+});
+
+ws.on('close', () => {
+  console.log('Connection closed, reconnecting...');
+  setTimeout(connect, 5000);
+});
+```
+
+### Performance
+
+- Use filters on `programSubscribe` to reduce notification volume
+- Batch account queries instead of individual subscriptions when possible
+- Consider commitment level tradeoffs (processed vs confirmed)
+
+## Rate Limits
+
+- **Max subscriptions per connection**: 10
+- **Notification rate**: No hard limit, depends on blockchain activity
+- **Connection limit**: Varies by node configuration
+
+## See Also
+
+- [RPC Methods](/api/rpc/methods) - HTTP JSON-RPC methods
+- [RPC Overview](/api/rpc/overview) - General RPC configuration
+- [Validator Configuration](/validator/configuration) - RPC server setup

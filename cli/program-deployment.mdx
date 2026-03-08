@@ -1,0 +1,568 @@
+---
+title: 'Program Deployment'
+description: 'Deploy and manage on-chain programs using the Harmonic Salsa CLI'
+---
+
+The Harmonic Salsa CLI provides comprehensive tools for deploying, upgrading, and managing on-chain programs. This guide covers both the upgradeable loader (loader-v3) and the new loader-v4 program management.
+
+## Building Programs
+
+Before deployment, build your program:
+
+```bash
+# Build for Solana BPF
+cargo build-sbf
+
+# Output location
+# target/deploy/your_program.so
+```
+
+The compiled program is in the `target/deploy/` directory.
+
+## Upgradeable Program Deployment
+
+### Initial Deployment
+
+Deploy a new upgradeable program:
+
+```bash
+solana program deploy target/deploy/your_program.so
+```
+
+This automatically:
+1. Creates a program account
+2. Uploads program data
+3. Deploys the program
+4. Makes it executable
+
+The program ID is displayed after successful deployment.
+
+### Deploy with Specific Program ID
+
+Use a specific program keypair:
+
+```bash
+# Generate program keypair
+solana-keygen new --outfile ~/program-keypair.json
+
+# Deploy with program ID
+solana program deploy target/deploy/your_program.so \
+  --program-id ~/program-keypair.json
+```
+
+### Deploy with Custom Authority
+
+Specify upgrade authority:
+
+```bash
+solana program deploy target/deploy/your_program.so \
+  --upgrade-authority ~/upgrade-authority.json
+```
+
+### Deploy as Final (Immutable)
+
+Deploy without upgrade capability:
+
+```bash
+solana program deploy target/deploy/your_program.so --final
+```
+
+**Warning**: Final programs cannot be upgraded or closed. Use carefully.
+
+### Deploy with Buffer
+
+Use an intermediate buffer for large programs:
+
+```bash
+solana program deploy target/deploy/your_program.so \
+  --buffer ~/buffer-keypair.json
+```
+
+### Deploy with Max Length
+
+Reserve space for future upgrades:
+
+```bash
+solana program deploy target/deploy/your_program.so \
+  --max-len 200000
+```
+
+### Deploy with Auto-Extend
+
+Automatically extend program size if needed (default):
+
+```bash
+solana program deploy target/deploy/your_program.so
+
+# Disable auto-extend
+solana program deploy target/deploy/your_program.so --no-auto-extend
+```
+
+## Upgrading Programs
+
+### Write to Buffer
+
+First, write the new program to a buffer:
+
+```bash
+solana program write-buffer target/deploy/your_program.so
+```
+
+This returns a buffer address:
+```
+Buffer: 8gJkK3N8M...
+```
+
+### Upgrade from Buffer
+
+Upgrade the program using the buffer:
+
+```bash
+solana program upgrade <BUFFER_ADDRESS> <PROGRAM_ID>
+```
+
+Example:
+```bash
+solana program upgrade 8gJkK3N8M... 5eykt4UsF...
+```
+
+### Upgrade with Custom Authority
+
+```bash
+solana program upgrade <BUFFER_ADDRESS> <PROGRAM_ID> \
+  --upgrade-authority ~/upgrade-authority.json
+```
+
+### Direct Upgrade
+
+Upgrade without separate buffer step:
+
+```bash
+solana program deploy target/deploy/your_program.so \
+  --program-id <PROGRAM_ID>
+```
+
+## Managing Buffers
+
+### Show Buffer Information
+
+Display buffer details:
+
+```bash
+solana program show <BUFFER_ADDRESS>
+```
+
+### List All Buffers
+
+Show all buffers you own:
+
+```bash
+solana program show --buffers
+```
+
+### Set Buffer Authority
+
+Change buffer authority:
+
+```bash
+solana program set-buffer-authority <BUFFER_ADDRESS> \
+  --new-buffer-authority <NEW_AUTHORITY_PUBKEY>
+```
+
+With current authority:
+```bash
+solana program set-buffer-authority <BUFFER_ADDRESS> \
+  --new-buffer-authority <NEW_AUTHORITY_PUBKEY> \
+  --buffer-authority ~/current-authority.json
+```
+
+### Close Buffer
+
+Close a buffer and reclaim SOL:
+
+```bash
+solana program close <BUFFER_ADDRESS>
+
+# Specify recipient
+solana program close <BUFFER_ADDRESS> --recipient <RECIPIENT_ADDRESS>
+
+# With custom authority
+solana program close <BUFFER_ADDRESS> \
+  --authority ~/buffer-authority.json
+```
+
+### Close All Buffers
+
+Close all buffers you own:
+
+```bash
+solana program close --buffers
+```
+
+## Managing Program Authority
+
+### Set Upgrade Authority
+
+Change the upgrade authority:
+
+```bash
+solana program set-upgrade-authority <PROGRAM_ID> \
+  --new-upgrade-authority <NEW_AUTHORITY_PUBKEY>
+```
+
+### Set Authority with Verification
+
+Verify new authority as a signer:
+
+```bash
+solana program set-upgrade-authority <PROGRAM_ID> \
+  --new-upgrade-authority ~/new-authority.json
+```
+
+### Make Program Immutable
+
+Remove upgrade authority permanently:
+
+```bash
+solana program set-upgrade-authority <PROGRAM_ID> --final
+```
+
+**Warning**: This action is irreversible. The program can never be upgraded again.
+
+### Skip Authority Verification
+
+Set authority without requiring signature:
+
+```bash
+solana program set-upgrade-authority <PROGRAM_ID> \
+  --new-upgrade-authority <NEW_AUTHORITY_PUBKEY> \
+  --skip-new-upgrade-authority-signer-check
+```
+
+## Program Information
+
+### Show Program Details
+
+Display program information:
+
+```bash
+solana program show <PROGRAM_ID>
+```
+
+Output includes:
+- Program account address
+- Owner (loader)
+- Upgrade authority
+- Last deploy slot
+- Data length
+- Balance
+
+### List All Programs
+
+Show all programs you own:
+
+```bash
+solana program show --programs
+```
+
+### List by Authority
+
+Filter by upgrade authority:
+
+```bash
+solana program show --programs --buffer-authority <AUTHORITY_PUBKEY>
+```
+
+### List All Programs
+
+Show programs for all authorities:
+
+```bash
+solana program show --programs --all
+```
+
+## Dumping Programs
+
+### Download Program Data
+
+Save program executable to file:
+
+```bash
+solana program dump <PROGRAM_ID> program.so
+```
+
+This downloads the deployed program bytecode.
+
+### Dump Buffer Data
+
+```bash
+solana program dump <BUFFER_ADDRESS> buffer.so
+```
+
+## Extending Programs
+
+### Extend Program Size
+
+Increase program data account size:
+
+```bash
+solana program extend <PROGRAM_ID> <ADDITIONAL_BYTES>
+```
+
+Example:
+```bash
+# Add 50KB
+solana program extend 5eykt4UsF... 51200
+```
+
+Required when upgrading to a larger program.
+
+## Closing Programs
+
+### Close Program Account
+
+Close a program and reclaim SOL:
+
+```bash
+solana program close <PROGRAM_ID>
+```
+
+**Warning**: Closed programs are permanently deleted and cannot be recreated at the same address.
+
+### Close with Bypass
+
+Skip the warning:
+
+```bash
+solana program close <PROGRAM_ID> --bypass-warning
+```
+
+### Close with Custom Authority
+
+```bash
+solana program close <PROGRAM_ID> \
+  --authority ~/upgrade-authority.json
+```
+
+### Specify Recipient
+
+```bash
+solana program close <PROGRAM_ID> \
+  --recipient <RECIPIENT_ADDRESS>
+```
+
+## Loader V4 Programs
+
+New loader-v4 provides enhanced program management.
+
+### Deploy with Loader V4
+
+```bash
+solana program-v4 deploy target/deploy/your_program.so \
+  --program-keypair ~/program-keypair.json
+```
+
+### Redeploy Existing Program
+
+```bash
+solana program-v4 deploy target/deploy/your_program.so \
+  --program-id <PROGRAM_ADDRESS>
+```
+
+### Deploy with Buffer
+
+```bash
+solana program-v4 deploy target/deploy/your_program.so \
+  --buffer ~/buffer-keypair.json
+```
+
+### Partial Upload
+
+Upload specific byte ranges:
+
+```bash
+solana program-v4 deploy target/deploy/your_program.so \
+  --start-offset 0 \
+  --end-offset 50000
+```
+
+### Retract Program
+
+Reverse deployment:
+
+```bash
+solana program-v4 retract --program-id <PROGRAM_ID>
+```
+
+### Close Entirely
+
+Close and retrieve funds:
+
+```bash
+solana program-v4 retract --program-id <PROGRAM_ID> \
+  --close-program-entirely
+```
+
+### Transfer Authority
+
+Transfer program authority:
+
+```bash
+solana program-v4 transfer-authority \
+  --program-id <PROGRAM_ID> \
+  --new-authority ~/new-authority.json
+```
+
+### Finalize Program
+
+Make program immutable:
+
+```bash
+solana program-v4 finalize --program-id <PROGRAM_ID>
+```
+
+### Finalize with Next Version
+
+Link to next version:
+
+```bash
+solana program-v4 finalize \
+  --program-id <PROGRAM_ID> \
+  --next-version ~/next-version-keypair.json
+```
+
+## Deployment Options
+
+### Custom Fee Payer
+
+```bash
+solana program deploy target/deploy/your_program.so \
+  --fee-payer ~/fee-payer.json
+```
+
+### Skip Fee Check
+
+```bash
+solana program deploy target/deploy/your_program.so \
+  --skip-fee-check
+```
+
+### Max Sign Attempts
+
+Set maximum signing retries:
+
+```bash
+solana program deploy target/deploy/your_program.so \
+  --max-sign-attempts 10
+```
+
+### Use RPC Instead of TPU
+
+```bash
+solana program deploy target/deploy/your_program.so \
+  --use-rpc
+```
+
+### Compute Unit Price
+
+Set priority fees:
+
+```bash
+solana program deploy target/deploy/your_program.so \
+  --compute-unit-price 1000
+```
+
+### Skip Feature Verification
+
+```bash
+solana program deploy target/deploy/your_program.so \
+  --skip-feature-verify
+```
+
+**Warning**: Program may fail on-chain if using unavailable features.
+
+## Migration
+
+### Migrate to Loader V4
+
+Migrate upgradeable program:
+
+```bash
+solana program migrate <PROGRAM_ID>
+
+# With custom authority
+solana program migrate <PROGRAM_ID> \
+  --authority ~/upgrade-authority.json
+```
+
+## Best Practices
+
+### Development Workflow
+
+1. **Test on Devnet**: Always test on devnet first
+2. **Use Buffers**: For large programs, use buffer accounts
+3. **Verify Builds**: Ensure reproducible builds
+4. **Authority Management**: Use separate upgrade authority
+5. **Backup Keys**: Securely store all authority keypairs
+
+### Security
+
+1. **Separate Authorities**: Don't use wallet keypair as upgrade authority
+2. **Multi-sig**: Consider multi-signature upgrade authority
+3. **Audit Code**: Audit before deploying to mainnet
+4. **Test Upgrades**: Test upgrade process on devnet
+5. **Final Carefully**: Only finalize after thorough testing
+
+### Cost Optimization
+
+1. **Right-size Programs**: Don't over-allocate with `--max-len`
+2. **Reuse Buffers**: Close buffers after use
+3. **Batch Deployments**: Deploy multiple programs in sequence
+4. **Monitor Rent**: Check account rent exemption
+
+## Troubleshooting
+
+### Deployment Failed
+
+```bash
+# Check program size
+ls -lh target/deploy/your_program.so
+
+# Verify balance
+solana balance
+
+# Check with verbose output
+solana program deploy target/deploy/your_program.so --verbose
+```
+
+### Program Too Large
+
+```bash
+# Extend program account first
+solana program extend <PROGRAM_ID> <ADDITIONAL_BYTES>
+
+# Then upgrade
+solana program upgrade <BUFFER> <PROGRAM_ID>
+```
+
+### Authority Errors
+
+```bash
+# Verify current authority
+solana program show <PROGRAM_ID>
+
+# Use correct authority keypair
+solana program upgrade <BUFFER> <PROGRAM_ID> \
+  --upgrade-authority ~/correct-authority.json
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Wallet Management" icon="wallet" href="/cli/wallet-management">
+    Manage keypairs and wallets
+  </Card>
+  <Card title="Cluster Queries" icon="server" href="/cli/cluster-query">
+    Query cluster information
+  </Card>
+</CardGroup>

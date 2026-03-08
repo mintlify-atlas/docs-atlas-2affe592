@@ -1,0 +1,376 @@
+---
+title: Gossip Protocol
+description: Peer discovery and cluster communication in Harmonic Salsa
+---
+
+The gossip protocol enables peer discovery, cluster communication, and distribution of cluster metadata across the Harmonic Salsa network.
+
+## Overview
+
+The gossip implementation uses a Conflict-free Replicated Data Store (CRDS) to propagate information across the cluster.
+
+### Key Concepts
+
+From ~/workspace/source/gossip/src/cluster_info.rs:1:
+
+```rust
+/// The `cluster_info` module defines a data structure that is
+/// shared by all the nodes in the network over a gossip control plane.
+/// The goal is to share small bits of off-chain information and
+/// detect and repair partitions.
+```
+
+## Network Topology
+
+The network is arranged in layers (~/workspace/source/gossip/src/cluster_info.rs:8):
+
+- **Layer 0** - Leader node
+- **Layer 1** - As many nodes as can fit (up to 2^10)
+- **Layer 2** - Everyone else (up to 2^20 nodes)
+
+This layered approach:
+
+- Limits broadcast fan-out
+- Reduces network congestion
+- Scales to large clusters
+- Prioritizes stake-weighted nodes
+
+## CRDS (Cluster Replicated Data Store)
+
+The CRDS (~/workspace/source/gossip/src/crds.rs:1) stores all gossip data:
+
+```rust
+/// CRDS implements Cluster Replicated Data Store for
+/// asynchronous updates in a distributed network.
+///
+/// Data is stored in the CrdsValue type, each type has
+/// a specific CrdsValueLabel.
+```
+
+### Data Organization
+
+```rust
+pub struct Crds {
+    /// Stores the map of labels and values
+    table: IndexMap<CrdsValueLabel, VersionedCrdsValue>,
+    cursor: Cursor,
+    shards: CrdsShards,
+    nodes: IndexSet<usize>,
+    votes: BTreeMap<u64, usize>,
+    epoch_slots: BTreeMap<u64, usize>,
+    duplicate_shreds: BTreeMap<u64, usize>,
+    records: HashMap<Pubkey, IndexSet<usize>>,
+    entries: BTreeMap<u64, usize>,
+    purged: VecDeque<(Hash, u64)>,
+    shred_versions: HashMap<Pubkey, u16>,
+}
+```
+
+### CRDS Value Types
+
+- **ContactInfo** - Node network addresses
+- **Vote** - Validator votes
+- **LowestSlot** - Oldest available slot
+- **SnapshotHashes** - Available snapshots
+- **EpochSlots** - Slots seen in epoch
+- **DuplicateShred** - Duplicate detection
+
+### Merge Strategy
+
+Values updated using last-write-wins:
+
+1. Compare wallclock timestamps
+2. If equal, compare value hashes
+3. Keep newer/greater value
+4. Discard older value
+
+## Contact Info
+
+Contact info (~/workspace/source/gossip/src/contact_info.rs) contains node network details:
+
+```rust
+pub struct ContactInfo {
+    // Node pubkey
+    // Gossip socket address
+    // TPU socket address
+    // TVU socket address
+    // RPC socket address
+    // Shred version
+}
+```
+
+### Socket Types
+
+- **Gossip** - Cluster information exchange
+- **TPU (Transaction Processing Unit)** - Transaction forwarding
+- **TPU Forward** - Transaction forwarding to next leader
+- **TVU (Transaction Validation Unit)** - Shred reception
+- **TVU Forward** - Shred forwarding
+- **Repair** - Missing shred requests
+- **Serve Repair** - Serve repair requests
+- **RPC** - Client RPC requests
+
+## Gossip Messages
+
+### Push Messages
+
+Nodes push new data to random peers:
+
+1. **Select Data** - Choose recent updates
+2. **Select Peers** - Pick random stake-weighted peers
+3. **Send Push** - Broadcast data to peers
+4. **Track Duplicates** - Avoid resending same data
+
+### Pull Messages
+
+Nodes pull missing data from peers:
+
+1. **Create Filter** - Bloom filter of known data
+2. **Send Request** - Request data matching filter
+3. **Receive Response** - Get filtered data
+4. **Merge Data** - Update local CRDS
+
+### Prune Messages
+
+Nodes prune redundant connections:
+
+1. **Track Origins** - Note push message sources
+2. **Identify Duplicates** - Find redundant paths
+3. **Send Prune** - Request to stop forwarding
+4. **Update Topology** - Adjust gossip graph
+
+## Peer Discovery
+
+### Entrypoint Discovery
+
+1. **Connect to Entrypoint** - Bootstrap with known node
+2. **Pull Cluster Info** - Get full cluster state
+3. **Update ContactInfo** - Merge into local CRDS
+4. **Start Gossip** - Begin push/pull protocol
+
+### Spy Nodes
+
+Spy nodes observe without participating:
+
+- Don't publish contact info
+- Only pull, never push
+- Used for monitoring
+- Don't forward transactions
+
+## Cluster Communication
+
+### Vote Propagation
+
+Votes gossiped for consensus:
+
+1. **Receive Vote** - From voting service
+2. **Create CrdsValue** - Wrap in gossip message
+3. **Push to Cluster** - Broadcast via gossip
+4. **Update Progress** - Track vote propagation
+
+### Epoch Slots
+
+Validators share observed slots:
+
+- Track which slots validator saw
+- Detect network partitions
+- Identify missing blocks
+- Coordinate replay
+
+### Snapshot Hashes
+
+Nodes advertise available snapshots:
+
+- Full snapshot hashes
+- Incremental snapshot hashes
+- Download availability
+- Snapshot gossip for fast sync
+
+## Shred Version
+
+Shred version isolates incompatible networks:
+
+- Computed from genesis hash
+- Prevents cross-network communication
+- Identifies testnet vs mainnet
+- Enforced at network layer
+
+## Gossip Service
+
+The gossip service runs several threads:
+
+### Listen Thread
+
+Receives incoming gossip packets:
+
+1. **Read Socket** - Receive UDP packets
+2. **Deserialize** - Parse gossip messages
+3. **Process** - Handle push/pull/prune
+4. **Update CRDS** - Merge new data
+
+### Respond Thread
+
+Responds to pull requests:
+
+1. **Receive Request** - Get pull request
+2. **Filter Data** - Apply bloom filter
+3. **Create Response** - Package matching data
+4. **Send Response** - Return filtered values
+
+### Gossip Thread
+
+Generates outgoing gossip:
+
+1. **Push Messages** - Send recent updates
+2. **Pull Requests** - Request missing data
+3. **Prune Messages** - Optimize topology
+4. **Ping/Pong** - Check peer liveness
+
+## Weighted Shuffle
+
+Peer selection uses stake-weighted shuffle:
+
+```rust
+// Select peers weighted by stake
+// Higher stake = more likely selected
+// Ensures stake-weighted propagation
+// Used for push/pull peer selection
+```
+
+Benefits:
+
+- Faster propagation to high-stake nodes
+- Better network utilization
+- Improved consensus latency
+- Sybil resistance
+
+## Duplicate Shred Detection
+
+Gossip propagates duplicate shred alerts:
+
+1. **Detect Duplicate** - Find conflicting shreds
+2. **Create Proof** - Bundle both shreds
+3. **Gossip Duplicate** - Broadcast to cluster
+4. **Slash Validator** - Penalize producer (if enabled)
+
+## Cluster Slots Service
+
+The cluster_slots_service (~/workspace/source/core/src/cluster_slots_service.rs) tracks:
+
+- Slots observed by cluster
+- Validator slot completion
+- Network partition detection
+- Repair prioritization
+
+## Ping/Pong Protocol
+
+Nodes ping peers to check liveness:
+
+```rust
+pub struct Ping {
+    // Sender pubkey
+    // Random token
+    // Signature
+}
+
+pub struct Pong {
+    // Responder pubkey  
+    // Echo token
+    // Signature
+}
+```
+
+Process:
+
+1. Send Ping with random token
+2. Peer responds with Pong echoing token
+3. Verify signature and token
+4. Update peer last-seen time
+5. Remove unresponsive peers
+
+## Gossip Filters
+
+Bloom filters optimize pull protocol:
+
+- **Contain Local Data** - Keys of known values
+- **Size Based on Set Size** - Scales with data
+- **False Positive Rate** - Tuned for bandwidth
+- **Prevents Redundant Sends** - Only send new data
+
+## Timeouts
+
+Gossip enforces timeouts:
+
+- **CRDS Timeout** - Remove old values (10 minutes)
+- **Gossip Timeout** - Consider peer dead (60 seconds)
+- **Stake Timeout** - Unstaked node timeout (shorter)
+
+## Security
+
+### Signature Verification
+
+All gossip messages signed:
+
+- Verify sender identity
+- Prevent spoofing
+- Ensure data authenticity
+
+### Stake Weighting
+
+Stake weight determines:
+
+- Gossip peer selection probability
+- Value retention priority
+- Network partition resolution
+
+### Rate Limiting
+
+Prevent gossip spam:
+
+- Limit messages per peer
+- Drop excessive push attempts
+- Prune aggressive pushers
+
+## Performance Optimizations
+
+### Sharding
+
+CRDS sharded for parallelism (~/workspace/source/gossip/src/crds.rs:56):
+
+```rust
+const CRDS_SHARDS_BITS: u32 = 12;
+// Allows parallel access to different shards
+```
+
+### LRU Caching
+
+Recent values cached:
+
+- Faster lookup for hot data
+- Reduces lock contention
+- Better cache locality
+
+### Batch Processing
+
+Gossip processed in batches:
+
+- Amortize lock overhead
+- Better throughput
+- Reduced latency variance
+
+## Network Partition Recovery
+
+Gossip enables partition recovery:
+
+1. **Detect Partition** - Missing cluster nodes
+2. **Pull Aggressively** - Request all data
+3. **Reconcile State** - Merge CRDS data
+4. **Resume Consensus** - Continue with majority
+
+## Key Files
+
+- **Cluster Info**: ~/workspace/source/gossip/src/cluster_info.rs
+- **CRDS**: ~/workspace/source/gossip/src/crds.rs
+- **Contact Info**: ~/workspace/source/gossip/src/contact_info.rs
+- **CRDS Gossip**: ~/workspace/source/gossip/src/crds_gossip.rs
+- **Weighted Shuffle**: ~/workspace/source/gossip/src/weighted_shuffle.rs

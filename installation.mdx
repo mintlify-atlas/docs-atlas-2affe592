@@ -1,0 +1,320 @@
+---
+title: Installation
+description: Comprehensive installation guide for Harmonic Salsa validator
+---
+
+This guide provides detailed instructions for installing and building Harmonic Salsa validator from source.
+
+## System Requirements
+
+### Operating Systems
+
+- **Linux**: Ubuntu 20.04+, Fedora 34+, or other modern distributions
+- **macOS**: macOS 11 (Big Sur) or later
+- **Windows**: Not officially supported (use WSL2)
+
+### Hardware Requirements
+
+<Tabs>
+  <Tab title="Development">
+    Minimum requirements for local development:
+    - **CPU**: 4+ cores
+    - **RAM**: 8 GB minimum, 16 GB recommended
+    - **Storage**: 20 GB free space for building
+  </Tab>
+  
+  <Tab title="Production Validator">
+    Requirements for running a production validator:
+    - **CPU**: 12+ cores / 24+ threads, 2.8GHz or faster
+    - **RAM**: 256 GB or more
+    - **Storage**: 2 TB+ NVMe SSD (accounts: 500GB+, ledger: 1TB+)
+    - **Network**: 1 Gbps+ internet connection
+  </Tab>
+</Tabs>
+
+## Installing Rust Toolchain
+
+Harmonic Salsa requires Rust to build from source. Install the Rust toolchain using rustup:
+
+```bash
+curl https://sh.rustup.rs -sSf | sh
+source $HOME/.cargo/env
+rustup component add rustfmt
+```
+
+### Rust Version Management
+
+The repository includes a `rust-toolchain.toml` file that pins a specific Rust version. Cargo will automatically:
+- Detect the required Rust version from this file
+- Install the correct version if not already present
+- Use the pinned version for all build commands
+
+You don't need to manually manage the Rust version — the toolchain file handles it automatically.
+
+## System Dependencies
+
+Install the required system libraries and build tools for your platform.
+
+<CodeGroup>
+```bash Ubuntu/Debian
+sudo apt-get update
+sudo apt-get install libssl-dev libudev-dev pkg-config zlib1g-dev llvm clang cmake make libprotobuf-dev protobuf-compiler libclang-dev
+```
+
+```bash Fedora/RHEL
+sudo dnf install openssl-devel systemd-devel pkg-config zlib-devel llvm clang cmake make protobuf-devel protobuf-compiler perl-core libclang-dev
+```
+
+```bash macOS
+# Install Xcode Command Line Tools
+xcode-select --install
+
+# Install additional dependencies via Homebrew
+brew install protobuf
+```
+</CodeGroup>
+
+<Note>
+  On Linux systems, you may encounter errors during the build if any of these dependencies are missing. Install all packages listed above before building.
+</Note>
+
+## Downloading Source Code
+
+Clone the Harmonic Salsa repository from GitHub:
+
+```bash
+git clone https://github.com/harmonic/salsa.git
+cd salsa
+```
+
+Optionally, checkout a specific version tag:
+
+```bash
+# List available tags
+git tag -l
+
+# Checkout a specific version
+git checkout v3.1.9
+```
+
+## Building from Source
+
+### Debug Build
+
+Build a debug version for development and testing:
+
+```bash
+./cargo build
+```
+
+Debug builds:
+- Compile faster (10-20 minutes)
+- Include debug symbols for debugging
+- Run significantly slower than release builds
+- **Not suitable for testnet or mainnet validators**
+
+Build artifacts are located in `./target/debug/`.
+
+### Release Build
+
+Build an optimized release version for production use:
+
+```bash
+./cargo build --release
+```
+
+Release builds:
+- Take longer to compile (20-40 minutes)
+- Fully optimized for performance
+- Required for testnet and mainnet validators
+- Include split debug information (see profiles below)
+
+Build artifacts are located in `./target/release/`.
+
+### Build Profiles
+
+The project includes multiple build profiles optimized for different use cases:
+
+<AccordionGroup>
+  <Accordion title="release (default)">
+    Standard release build with optimizations.
+    
+    ```bash
+    ./cargo build --release
+    ```
+    
+    - Thin LTO (Link-Time Optimization)
+    - Split debug info (unpacked)
+    - Good balance of build time and performance
+  </Accordion>
+  
+  <Accordion title="release-with-debug">
+    Release build with full debug symbols.
+    
+    ```bash
+    ./cargo build --profile release-with-debug
+    ```
+    
+    - Same optimizations as release
+    - Full debug symbols included
+    - No symbol stripping
+    - Useful for profiling and debugging production issues
+  </Accordion>
+  
+  <Accordion title="release-with-lto">
+    Maximum optimization release build.
+    
+    ```bash
+    ./cargo build --profile release-with-lto
+    ```
+    
+    - Fat LTO (maximum optimization)
+    - Single codegen unit
+    - Longest build time (30-60 minutes)
+    - Best runtime performance
+    - Recommended for production validators
+  </Accordion>
+</AccordionGroup>
+
+## Build Artifacts
+
+After building, you'll have access to numerous binaries in the `target/release/` or `target/debug/` directory:
+
+### Core Validator
+
+- `solana-validator` - Main validator client
+- `solana-test-validator` - Local test validator
+
+### CLI Tools
+
+- `solana` - Main CLI tool for wallet and cluster operations
+- `solana-keygen` - Keypair generation and management
+- `solana-stake` - Stake account management
+- `solana-tokens` - Token distribution tool
+- `solana-watchtower` - Validator monitoring tool
+
+### Developer Tools
+
+- `cargo-build-sbf` - Build Solana programs
+- `cargo-test-sbf` - Test Solana programs
+- `solana-ledger-tool` - Ledger inspection and manipulation
+- `solana-genesis` - Genesis block creation
+
+## Verification
+
+Verify your installation by checking the version:
+
+```bash
+# For release build
+./target/release/solana --version
+
+# For debug build
+./target/debug/solana --version
+```
+
+Run a quick validation test:
+
+```bash
+# Start test validator in background
+./target/release/solana-test-validator &
+
+# Wait a moment for it to start, then check cluster
+./target/release/solana cluster-version
+
+# Stop test validator
+killall solana-test-validator
+```
+
+## Installation to System PATH
+
+Optionally, install binaries to your system PATH:
+
+```bash
+# Install to ~/.local/bin (make sure it's in your PATH)
+mkdir -p ~/.local/bin
+cp target/release/solana* ~/.local/bin/
+
+# Or create symlinks
+ln -sf $(pwd)/target/release/solana* ~/.local/bin/
+```
+
+Verify system installation:
+
+```bash
+solana --version
+```
+
+## Updating
+
+To update to the latest version:
+
+```bash
+cd salsa
+git fetch origin
+git pull origin main  # or checkout specific tag
+./cargo build --release
+```
+
+<Warning>
+  Always review release notes before updating a production validator. Some updates may require configuration changes or special upgrade procedures.
+</Warning>
+
+## Troubleshooting
+
+### Build Failures
+
+<AccordionGroup>
+  <Accordion title="Missing system dependencies">
+    **Error**: `fatal error: 'openssl/ssl.h' file not found`
+    
+    **Solution**: Install all system dependencies listed above for your platform.
+  </Accordion>
+  
+  <Accordion title="Out of memory during build">
+    **Error**: Build process killed or fails with memory errors
+    
+    **Solution**: Reduce parallel build jobs:
+    ```bash
+    ./cargo build --release -j 2
+    ```
+  </Accordion>
+  
+  <Accordion title="Rust version mismatch">
+    **Error**: Compilation errors related to Rust language features
+    
+    **Solution**: Ensure rustup is up to date:
+    ```bash
+    rustup update
+    ```
+    Cargo will then automatically install the correct version from `rust-toolchain.toml`.
+  </Accordion>
+</AccordionGroup>
+
+### Build Taking Too Long
+
+The initial build can take 20-60 minutes depending on:
+- CPU cores available
+- Build profile selected
+- Whether you're building from a clean state
+
+Subsequent builds are much faster as cargo caches compiled dependencies.
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Quick Start" icon="rocket" href="/quickstart">
+    Run your first test validator
+  </Card>
+  
+  <Card title="Validator Setup" icon="server" href="/validator/setup">
+    Configure a production validator
+  </Card>
+  
+  <Card title="CLI Tools" icon="terminal" href="/cli/overview">
+    Learn about available CLI tools
+  </Card>
+  
+  <Card title="Architecture" icon="diagram-project" href="/architecture/overview">
+    Understand the validator architecture
+  </Card>
+</CardGroup>
