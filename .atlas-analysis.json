@@ -1,0 +1,126 @@
+{
+  "projectType": "infrastructure",
+  "projectName": "Harmonic Salsa",
+  "projectDescription": "Harmonic's fork of the Solana validator with enhanced features for blockchain infrastructure",
+  "theme": "aspen",
+  "primaryColor": "#142404",
+  "lightColor": "#828c7a",
+  "darkColor": "#f6f6f5",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "quickstart",
+              "installation"
+            ]
+          },
+          {
+            "group": "Validator",
+            "pages": [
+              "validator/overview",
+              "validator/setup",
+              "validator/operations",
+              "validator/configuration",
+              "validator/monitoring",
+              "validator/troubleshooting"
+            ]
+          },
+          {
+            "group": "CLI Tools",
+            "pages": [
+              "cli/overview",
+              "cli/installation",
+              "cli/wallet-management",
+              "cli/cluster-query",
+              "cli/stake-management",
+              "cli/program-deployment"
+            ]
+          },
+          {
+            "group": "Architecture",
+            "pages": [
+              "architecture/overview",
+              "architecture/runtime",
+              "architecture/svm",
+              "architecture/consensus",
+              "architecture/gossip",
+              "architecture/accounts-db"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Core Libraries",
+            "pages": [
+              "api/runtime",
+              "api/svm",
+              "api/accounts-db",
+              "api/ledger"
+            ]
+          },
+          {
+            "group": "RPC API",
+            "pages": [
+              "api/rpc/overview",
+              "api/rpc/methods",
+              "api/rpc/websockets"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Operations",
+        "groups": [
+          {
+            "group": "Deployment",
+            "pages": [
+              "operations/deployment",
+              "operations/configuration",
+              "operations/security"
+            ]
+          },
+          {
+            "group": "Maintenance",
+            "pages": [
+              "operations/monitoring",
+              "operations/troubleshooting",
+              "operations/upgrades"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Solana validator implementation",
+    "Command-line interface for cluster interaction",
+    "Solana Virtual Machine (SVM) runtime",
+    "Accounts database management",
+    "Gossip protocol for network communication",
+    "Geyser plugin system",
+    "RPC and WebSocket APIs",
+    "Transaction processing and consensus"
+  ],
+  "publicApiSurface": [
+    "agave-validator",
+    "solana CLI",
+    "solana-ledger-tool",
+    "solana-test-validator",
+    "solana-keygen",
+    "solana-svm",
+    "solana-runtime",
+    "solana-accounts-db",
+    "solana-rpc",
+    "solana-client",
+    "solana-program",
+    "geyser-plugin-interface"
+  ]
+}
